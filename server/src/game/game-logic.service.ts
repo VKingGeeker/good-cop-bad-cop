@@ -31,12 +31,13 @@ interface PlayerState {
   eliminated: boolean;
   bannedAction: ActionType | null;
   silenced: boolean;
+  isBot: boolean;
 }
 
 interface LogEntry {
   round: number;
   message: string;
-  type: 'action' | 'info' | 'eliminate' | 'equip' | 'result';
+  type: 'action' | 'info' | 'eliminate' | 'equip' | 'result' | 'bot';
 }
 
 interface GameState {
@@ -120,6 +121,7 @@ export class GameLogicService {
         eliminated: false,
         bannedAction: null,
         silenced: false,
+        isBot: room.players[i].isBot || false,
       });
     }
 
