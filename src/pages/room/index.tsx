@@ -30,6 +30,7 @@ const RoomPage = () => {
   const [room, setRoom] = useState<RoomData | null>(null)
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
+  const [soloStarting, setSoloStarting] = useState(false)
   const [copied, setCopied] = useState(false)
 
   const fetchRoom = async () => {
@@ -64,13 +65,13 @@ const RoomPage = () => {
     setStarting(true)
     try {
       const res = await Network.request({
-        url: '/api/game/room/start',
+        url: '/api/game/room/' + roomCode + '/start',
         method: 'POST',
-        data: { roomCode, hostPlayerId: playerId },
+        data: { playerId },
       })
       const result = res.data as any
       if (result.code === 0) {
-        Taro.redirectTo({ url: `/pages/game/index?roomCode=${roomCode}` })
+        Taro.redirectTo({ url: `/pages/game/index?roomCode=${roomCode}&playerId=${playerId}` })
       } else {
         Taro.showToast({ title: result.msg || '启动失败', icon: 'none' })
       }
@@ -78,6 +79,28 @@ const RoomPage = () => {
       Taro.showToast({ title: err.message || '网络错误', icon: 'none' })
     } finally {
       setStarting(false)
+    }
+  }
+
+  const handleSoloStart = async () => {
+    if (soloStarting || !isHost) return
+    setSoloStarting(true)
+    try {
+      const res = await Network.request({
+        url: '/api/game/room/' + roomCode + '/solo-start',
+        method: 'POST',
+        data: { playerId },
+      })
+      const result = res.data as any
+      if (result.code === 0) {
+        Taro.redirectTo({ url: `/pages/game/index?roomCode=${roomCode}&playerId=${playerId}` })
+      } else {
+        Taro.showToast({ title: result.msg || '启动失败', icon: 'none' })
+      }
+    } catch (err: any) {
+      Taro.showToast({ title: err.message || '网络错误', icon: 'none' })
+    } finally {
+      setSoloStarting(false)
     }
   }
 
@@ -156,7 +179,7 @@ const RoomPage = () => {
               玩家 ({room?.players.length || 0}/{room?.maxPlayers || 0})
             </Text>
           </View>
-          {room && room.players.length >= 3 && (
+          {room && room.players.length >= 2 && (
             <Text className="block text-xs text-green-400">人数已够</Text>
           )}
         </View>
@@ -199,17 +222,29 @@ const RoomPage = () => {
 
       <View className="px-6 py-6">
         {isHost ? (
-          <Button
-            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl py-4 flex items-center justify-center gap-2"
-            onClick={handleStartGame}
-            disabled={starting || (room?.players.length || 0) < 3}
-            style={{opacity: (starting || (room?.players.length || 0) < 3) ? 0.6 : 1}}
-          >
-            <Play size={18} color="#ffffff" />
-            <Text className="font-bold">
-              {starting ? '正在启动...' : `开始游戏 (${room?.players.length || 0}人)`}
-            </Text>
-          </Button>
+          <View className="flex flex-col gap-3">
+            <Button
+              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl py-4 flex items-center justify-center gap-2"
+              onClick={handleStartGame}
+              disabled={starting || (room?.players.length || 0) < 2}
+              style={{opacity: (starting || (room?.players.length || 0) < 2) ? 0.6 : 1}}
+            >
+              <Play size={18} color="#ffffff" />
+              <Text className="font-bold">
+                {starting ? '正在启动...' : `开始游戏 (${room?.players.length || 0}人)`}
+              </Text>
+            </Button>
+            <Button
+              className="w-full rounded-xl py-3 flex items-center justify-center gap-2"
+              style={{background: 'linear-gradient(135deg, rgba(16,185,129,0.3) 0%, rgba(59,130,246,0.3) 100%)', border: '1px solid rgba(16,185,129,0.4)'}}
+              onClick={handleSoloStart}
+              disabled={soloStarting}
+            >
+              <Text className="font-bold text-emerald-400">
+                {soloStarting ? '正在启动...' : '🧪 单人测试（AI填充）'}
+              </Text>
+            </Button>
+          </View>
         ) : (
           <View className="flex items-center justify-center gap-2 p-4"
             style={{backgroundColor: 'rgba(234,179,8,0.15)', borderRadius: 12, border: '1px solid rgba(234,179,8,0.3)'}}

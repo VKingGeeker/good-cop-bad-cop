@@ -70,7 +70,7 @@ const EQUIPMENT_INFO: Record<string, { name: string; desc: string }> = {
 const GAME_PAGE = () => {
   const router = useRouter()
   const roomCode = router.params.roomCode || ''
-  const playerId = Taro.getStorageSync('playerId') || ''
+  const playerId = router.params.playerId || Taro.getStorageSync('playerId') || ''
 
   const [serverState, setServerState] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -502,7 +502,7 @@ const GAME_PAGE = () => {
           <Button key={p.id} className="w-full bg-gray-800 text-gray-200 rounded-xl mb-2 py-3" style={{border: '1px solid #374151'}}
             onClick={() => { submitAction('aim', p.id); setActionModal(null) }}
           >
-            <Target size={14} className="mr-2" />
+            <Target size={14} className="mr-2" color="#9ca3af" />
             <Text>{p.name}</Text>
           </Button>
         ))}
@@ -518,7 +518,7 @@ const GAME_PAGE = () => {
           onClick={() => { submitAction('shoot', me?.aimingAt || selectedTarget); setActionModal(null) }}
           disabled={submitting}
         >
-          <Crosshair size={16} className="mr-2" />
+          <Crosshair size={16} className="mr-2" color="#ffffff" />
           <Text>确认射击</Text>
         </Button>
         <Button variant="secondary" className="w-full bg-gray-800 text-gray-400 rounded-xl py-3 mt-2" onClick={() => setActionModal(null)}>

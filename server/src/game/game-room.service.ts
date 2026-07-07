@@ -5,6 +5,7 @@ export interface PlayerInfo {
   id: string;       // 玩家唯一 ID (UUID)
   name: string;     // 昵称
   isHost: boolean;  // 是否是房主
+  isBot?: boolean;  // 是否是机器人
   joinedAt: string; // 加入时间
 }
 
@@ -143,7 +144,42 @@ export class GameRoomService {
     return this.mapRoom(data);
   }
 
-  /** 更新房间状态 */
+  /** 填充机器人玩家并开始游戏（单人测试模式） */
+  async startSoloGame(roomCode: string, playerId: string): Promise<GameRoom> {
+    const room = await this.getRoom(roomCode);
+    if (room.hostPlayerId !== playerId) {
+      throw new Error('只有房主可以开始游戏');
+    }
+
+    const botNames = ['🤖 警探Alpha', '🤖 警探Beta', '🤖 警探Gamma', '🤖 警探Delta', '🤖 警探Epsilon', '🤖 警探Zeta', '🤖 警探Eta'];
+    const currentPlayers = [...room.players];
+    const targetCount = Math.max(room.maxPlayers, 3);
+    const remainingCount = targetCount - currentPlayers.length;
+
+    for (let i = 0; i < remainingCount; i++) {
+      currentPlayers.push({
+        id: crypto.randomUUID(),
+        name: botNames[i % botNames.length],
+        isHost: false,
+        isBot: true,
+        joinedAt: new Date().toISOString(),
+      });
+    }
+
+    const { data, error } = await getSupabaseClient()
+      .from('game_rooms')
+      .update({
+        players: currentPlayers,
+        max_players: targetCount,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('room_code', roomCode)
+      .select()
+      .single();
+
+    if (error) throw new Error(`填充机器人失败: ${error.message}`);
+    return this.mapRoom(data);
+  }
   async updateRoom(roomCode: string, updates: Partial<GameRoom>): Promise<GameRoom> {
     const dbUpdates: any = {
       updated_at: new Date().toISOString(),

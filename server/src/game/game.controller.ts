@@ -67,13 +67,27 @@ export class GameController {
       if (room.hostPlayerId !== body.playerId) {
         return { code: -1, msg: '只有房主可以开始游戏', data: null };
       }
-      if (room.players.length < 3) {
-        return { code: -1, msg: '至少需要3名玩家', data: null };
+      if (room.players.length < 2) {
+        return { code: -1, msg: '至少需要2名玩家', data: null };
       }
       const gameState = await this.gameLogicService.startGame(roomCode);
       return { code: 0, msg: 'success', data: { gameState } };
     } catch (error: any) {
       return { code: -1, msg: error.message || '开始游戏失败', data: null };
+    }
+  }
+
+  /** 单人测试模式：填充机器人并开始游戏 */
+  @Post('room/:roomCode/solo-start')
+  @HttpCode(200)
+  async soloStartGame(@Param('roomCode') roomCode: string, @Body() body: { playerId: string }): Promise<any> {
+    console.log(`[API] soloStartGame: roomCode=${roomCode}, playerId=${body.playerId}`);
+    try {
+      await this.gameRoomService.startSoloGame(roomCode, body.playerId);
+      const gameState = await this.gameLogicService.startGame(roomCode);
+      return { code: 0, msg: 'success', data: { gameState } };
+    } catch (error: any) {
+      return { code: -1, msg: error.message || '开始单人测试失败', data: null };
     }
   }
 

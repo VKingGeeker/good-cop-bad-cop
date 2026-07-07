@@ -253,7 +253,137 @@ export class GameLogicService {
     // 保存到数据库
     await this.gameRoomService.updateRoom(roomCode, { gameState: newState });
 
+    // 如果是回合结束，自动处理后续机器人的回合
+    if (action === 'endTurn' && !newState.winner) {
+      newState = await this.processBotTurns(roomCode, newState);
+    }
+
     return newState;
+  }
+
+  /** 自动处理机器人回合 */
+  private async processBotTurns(roomCode: string, state: GameState): Promise<GameState> {
+    let currentState = { ...state, players: [...state.players], gameLog: [...state.gameLog] };
+    const maxBots = 10; // 防止无限循环
+
+    for (let i = 0; i < maxBots; i++) {
+      const currentPlayer = currentState.players[currentState.currentPlayerIndex];
+      if (!currentPlayer.isBot || currentState.winner) break;
+
+      // 机器人随机选择行动
+      const actions = this.getBotActions(currentState, currentPlayer);
+      if (actions.length === 0) break;
+
+      const pickedAction = actions[Math.floor(Math.random() * actions.length)];
+      let newState = { ...currentState, players: [...currentState.players], gameLog: [...currentState.gameLog] };
+
+      switch (pickedAction.type) {
+        case 'investigate': {
+          newState = this.handleInvestigate(newState, pickedAction.payload);
+          this.addBotLog(newState, currentPlayer.name, `调查了 ${pickedAction.payload.targetName}`);
+          break;
+        }
+        case 'equip': {
+          newState = this.handleEquip(newState, pickedAction.payload);
+          this.addBotLog(newState, currentPlayer.name, '抽取了装备');
+          break;
+        }
+        case 'gun': {
+          newState = this.handleGun(newState, pickedAction.payload);
+          this.addBotLog(newState, currentPlayer.name, '装备了手枪');
+          break;
+        }
+        case 'shoot': {
+          newState = this.handleShoot(newState, {});
+          this.addBotLog(newState, currentPlayer.name, '开枪射击！');
+          break;
+        }
+        case 'aim': {
+          newState = this.handleAim(newState, pickedAction.payload);
+          break;
+        }
+        case 'useEquipment': {
+          newState = this.handleUseEquipment(newState, pickedAction.payload);
+          this.addBotLog(newState, currentPlayer.name, `使用了 ${pickedAction.payload.effect}`);
+          break;
+        }
+      }
+
+      // 检查胜负
+      if (!newState.winner) {
+        const winResult = this.checkWin(newState.players);
+        if (winResult.winner) {
+          newState.winner = winResult.winner;
+          newState.gameLog.push({ round: newState.round, message: winResult.message, type: 'result' });
+          newState.phase = 'result';
+          currentState = newState;
+          break;
+        }
+      }
+
+      // 结束机器人回合
+      currentState = this.handleEndTurn(newState);
+      await this.gameRoomService.updateRoom(roomCode, { gameState: currentState });
+
+      if (currentState.winner) break;
+    }
+
+    return currentState;
+  }
+
+  private addBotLog(state: GameState, botName: string, action: string) {
+    state.gameLog.push({
+      round: state.round,
+      message: `🤖 ${botName} ${action}`,
+      type: 'bot',
+    });
+  }
+
+  /** 获取机器人可用的行动列表 */
+  private getBotActions(state: GameState, player: any): Array<{ type: string; payload: any; targetName?: string }> {
+    const actions: Array<{ type: string; payload: any }> = [];
+    const aliveOthers = state.players.filter(p => p.id !== player.id && !p.eliminated);
+    const aliveEnemies = aliveOthers.filter(p => !p.isBot);
+
+    // 如果有装备未使用，随机使用
+    if (player.equipment && !player.silenced) {
+      actions.push({ type: 'useEquipment', payload: { effect: player.equipment.name, data: {} } });
+    }
+
+    // 调查行动
+    if (aliveOthers.length > 0) {
+      const target = aliveEnemies.length > 0
+        ? aliveEnemies[Math.floor(Math.random() * aliveEnemies.length)]
+        : aliveOthers[Math.floor(Math.random() * aliveOthers.length)];
+      const cardIndex = Math.floor(Math.random() * 3);
+      actions.push({ type: 'investigate', payload: { targetId: target.id, cardIndex, targetName: target.name } });
+    }
+
+    // 装备行动
+    actions.push({ type: 'equip', payload: {} });
+
+    // 手枪行动
+    if (state.gunCount > 0) {
+      const aimTarget = aliveEnemies.length > 0
+        ? aliveEnemies[Math.floor(Math.random() * aliveEnemies.length)]
+        : aliveOthers.length > 0 ? aliveOthers[Math.floor(Math.random() * aliveOthers.length)] : null;
+      actions.push({ type: 'gun', payload: { flipCardIndex: Math.floor(Math.random() * 3), aimTargetId: aimTarget?.id } });
+    }
+
+    // 射击行动
+    if (player.hasGun && player.aimingAt) {
+      actions.push({ type: 'shoot', payload: {} });
+    }
+
+    // 瞄准行动
+    if (player.hasGun && !player.aimingAt && aliveOthers.length > 0) {
+      const target = aliveEnemies.length > 0
+        ? aliveEnemies[Math.floor(Math.random() * aliveEnemies.length)]
+        : aliveOthers[Math.floor(Math.random() * aliveOthers.length)];
+      actions.push({ type: 'aim', payload: { targetId: target.id } });
+    }
+
+    return actions;
   }
 
   private handleInvestigate(state: GameState, payload: any): GameState {
@@ -663,7 +793,7 @@ export class GameLogicService {
     const cards: IdentityType[] = ['chief', 'mastermind'];
     const totalCards = playerCount * 3;
     const regularCards = totalCards - 2;
-    const ratios: Record<number, number> = { 3: 0.55, 4: 0.55, 5: 0.53, 6: 0.5, 7: 0.52, 8: 0.55 };
+    const ratios: Record<number, number> = { 2: 0.5, 3: 0.55, 4: 0.55, 5: 0.53, 6: 0.5, 7: 0.52, 8: 0.55 };
     const loyalRatio = ratios[playerCount] || 0.5;
     const loyalCount = Math.round(regularCards * loyalRatio);
     const traitorCount = regularCards - loyalCount;
