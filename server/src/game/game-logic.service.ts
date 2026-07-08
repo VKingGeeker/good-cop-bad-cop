@@ -252,11 +252,17 @@ export class GameLogicService {
       }
     }
 
+    // 自动结束回合（investigate/equip/gun/shoot/use_equipment 后自动结束）
+    const autoEndActions = ['investigate', 'equip', 'gun', 'shoot', 'use_equipment'];
+    if (autoEndActions.includes(action) && !newState.winner) {
+      newState = this.handleEndTurn(newState);
+    }
+
     // 保存到数据库
     await this.gameRoomService.updateRoom(roomCode, { gameState: newState });
 
-    // 如果是回合结束，自动处理后续机器人的回合
-    if (action === 'endTurn' && !newState.winner) {
+    // 自动处理后续机器人的回合（processBotTurns 内部会自己保存到数据库）
+    if (!newState.winner) {
       newState = await this.processBotTurns(roomCode, newState);
     }
 

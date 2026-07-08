@@ -241,7 +241,7 @@ const GAME_PAGE = () => {
         {me && (
           <View className="px-6 pt-4">
             <Text className="block text-xs text-gray-400 mb-2">我的底细牌</Text>
-            <View className="flex gap-2">
+            <View className="flex gap-2 mb-2">
               {me.cards.map((card, i) => (
                 <View key={i} className="w-20 h-28 rounded-xl border-2 flex items-center justify-center"
                   style={{
@@ -272,6 +272,37 @@ const GAME_PAGE = () => {
                   </View>
                 </View>
               ))}
+            </View>
+            {/* 身份提示 */}
+            <View className="bg-gray-800 bg-opacity-50 rounded-lg p-2 mb-1">
+              <View className="flex items-center gap-2">
+                {(() => {
+                  const hasChief = me.cards.some(c => c.faceUp && c.type === 'chief')
+                  const hasMaster = me.cards.some(c => c.faceUp && c.type === 'mastermind')
+                  const loyalCount = me.cards.filter(c => c.faceUp && (c.type === 'loyal' || c.type === 'chief')).length
+                  const traitorCount = me.cards.filter(c => c.faceUp && (c.type === 'traitor' || c.type === 'mastermind')).length
+                  const faceUpCount = me.cards.filter(c => c.faceUp).length
+                  
+                  if (hasChief && hasMaster) {
+                    return <><Text className="text-yellow-400">⭐</Text><Text className="block text-xs text-yellow-300 font-bold">你同时持有探长和主谋！即将独自获胜！</Text></>
+                  }
+                  if (hasChief) {
+                    return <><Text className="text-yellow-400">⭐</Text><Text className="block text-xs text-yellow-300 font-bold">你是忠诚阵营首领——探长！</Text></>
+                  }
+                  if (hasMaster) {
+                    return <><Text className="text-red-400">💀</Text><Text className="block text-xs text-red-300 font-bold">你是变节阵营首领——主谋！</Text></>
+                  }
+                  if (faceUpCount >= 3 || (faceUpCount >= 2 && loyalCount !== traitorCount)) {
+                    // 所有牌翻开或有明确倾向
+                    if (loyalCount > traitorCount) {
+                      return <><Text className="text-blue-400">🔵</Text><Text className="block text-xs text-blue-300 font-bold">你是忠诚阵营的警察！</Text></>
+                    } else if (traitorCount > loyalCount) {
+                      return <><Text className="text-red-400">🔴</Text><Text className="block text-xs text-red-300 font-bold">你是变节阵营的黑帮！</Text></>
+                    }
+                  }
+                  return <><Text className="text-gray-400">❓</Text><Text className="block text-xs text-gray-400">底细未完全翻开，身份待定...</Text></>
+                })()}
+              </View>
             </View>
           </View>
         )}
