@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { View, Text } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { Swords, BookOpen, DoorOpen, LogIn } from 'lucide-react-taro'
-import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Network } from '@/network'
@@ -30,8 +29,8 @@ const IndexPage = () => {
       setError('请输入昵称')
       return
     }
-    setCreating(true)
     setError('')
+    setCreating(true)
     try {
       const res = await Network.request({
         url: '/api/game/room/create',
@@ -40,34 +39,26 @@ const IndexPage = () => {
       })
       const result = res.data as any
       if (result.code === 0) {
-        const { roomCode: newRoomCode, playerId } = result.data
-        // 保存到本地存储
-        Taro.setStorageSync('playerId', playerId)
-        Taro.setStorageSync('playerName', hostName.trim())
-        Taro.setStorageSync('roomCode', newRoomCode)
-        Taro.setStorageSync('isHost', 'true')
-        Taro.redirectTo({ url: `/pages/room/index?roomCode=${newRoomCode}` })
+        Taro.setStorageSync('playerId', result.data.playerId)
+        Taro.redirectTo({ url: `/pages/room/index?roomCode=${result.data.roomCode}` })
       } else {
-        setError(result.msg || '创建房间失败')
+        setError(result.msg || '创建失败')
       }
-    } catch (err: any) {
-      setError(err.message || '网络错误')
+    } catch (e: any) {
+      setError(e.message || '网络错误')
     } finally {
       setCreating(false)
     }
   }
 
   const handleJoinRoom = async () => {
-    if (!roomCode.trim() || roomCode.length !== 6) {
-      setError('请输入6位房间号')
+    if (joining) return
+    if (!roomCode.trim() || !joinName.trim()) {
+      setError('请填写房间号和昵称')
       return
     }
-    if (!joinName.trim()) {
-      setError('请输入昵称')
-      return
-    }
-    setJoining(true)
     setError('')
+    setJoining(true)
     try {
       const res = await Network.request({
         url: '/api/game/room/join',
@@ -76,196 +67,205 @@ const IndexPage = () => {
       })
       const result = res.data as any
       if (result.code === 0) {
-        const { playerId } = result.data
-        Taro.setStorageSync('playerId', playerId)
-        Taro.setStorageSync('playerName', joinName.trim())
-        Taro.setStorageSync('roomCode', roomCode.trim())
-        Taro.setStorageSync('isHost', 'false')
+        Taro.setStorageSync('playerId', result.data.playerId)
         Taro.redirectTo({ url: `/pages/room/index?roomCode=${roomCode.trim()}` })
       } else {
-        setError(result.msg || '加入房间失败')
+        setError(result.msg || '加入失败')
       }
-    } catch (err: any) {
-      setError(err.message || '网络错误')
+    } catch (e: any) {
+      setError(e.message || '网络错误')
     } finally {
       setJoining(false)
     }
   }
 
   return (
-    <View className="min-h-screen bg-[#0a0e1a] flex flex-col" style={{ position: 'relative' }}>
-      {/* 背景装饰 */}
-      <View className="absolute inset-0 opacity-5">
-        <View className="w-full h-64 bg-gradient-to-b from-blue-600 to-transparent rounded-full blur-3xl -top-32" />
+    <View className="min-h-screen bg-[#0a0e1a] flex flex-col items-center justify-center px-6">
+      {/* 标题 */}
+      <View className="mb-8 text-center">
+        <View className="mb-4">
+          <Swords size={48} color="#3b82f6" />
+        </View>
+        <Text className="block text-3xl font-bold text-white mb-2">无间疑云</Text>
+        <Text className="block text-sm text-gray-500">Good Cop Bad Cop</Text>
       </View>
 
-      {/* 标题区域 */}
-      <View className="flex-1 flex flex-col items-center justify-center px-6 pt-12">
-        <View className="w-24 h-24 rounded-2xl bg-gradient-to-br from-blue-600 to-red-600 flex items-center justify-center mb-6 shadow-2xl animate-pulse-glow">
-          <Swords size={48} color="#ffffff" />
-        </View>
+      {/* 主菜单按钮 */}
+      <View className="w-full max-w-sm space-y-3">
+        <MenuBtn icon={<DoorOpen size={20} color="#3b82f6" />}
+          label="创建房间" desc="建立新游戏"
+          onClick={() => { setError(''); setShowCreate(true); }}
+        />
 
-        <Text className="block text-3xl font-bold text-white text-center mb-2 tracking-wider">
-          无间疑云
-        </Text>
-        <Text className="block text-sm text-gray-400 text-center mb-2">
-          Good Cop Bad Cop
-        </Text>
-        <View className="w-16 h-1 bg-gradient-to-r from-blue-500 to-red-500 rounded-full mb-6" />
+        <MenuBtn icon={<LogIn size={20} color="#22c55e" />}
+          label="加入房间" desc="输入房间号加入"
+          onClick={() => { setError(''); setShowJoin(true); }}
+        />
 
-        <Text className="block text-xs text-gray-500 text-center mb-10 max-w-xs leading-relaxed">
-          在线联机 · 3-8人 · 身份推理阵营对决定
-        </Text>
-
-        {/* 按钮组 */}
-        <View className="w-full max-w-xs space-y-3 px-4">
-          <Button
-            className="w-full h-12 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl text-base font-semibold"
-            style={{boxShadow: '0 10px 15px -3px rgba(37,99,235,0.3)'}}
-            onClick={() => { setShowCreate(true); setError('') }}
-          >
-            <DoorOpen size={18} color="#ffffff" className="mr-2" />
-            <Text>创建房间</Text>
-          </Button>
-
-          <Button
-            variant="secondary"
-            className="w-full h-12 bg-gray-800 text-gray-200 rounded-xl text-base border border-gray-700"
-            onClick={() => { setShowJoin(true); setError('') }}
-          >
-            <LogIn size={18} color="#ffffff" className="mr-2" />
-            <Text>加入房间</Text>
-          </Button>
-
-          <Button
-            variant="secondary"
-            className="w-full h-12 bg-gray-800 text-gray-200 rounded-xl text-base border border-gray-700"
-            onClick={() => setShowRules(true)}
-          >
-            <BookOpen size={18} color="#ffffff" className="mr-2" />
-            <Text>游戏规则</Text>
-          </Button>
-        </View>
-
-        <Text className="block text-xs text-gray-600 mt-8">v1.0 · 在线联机</Text>
+        <MenuBtn icon={<BookOpen size={20} color="#a855f7" />}
+          label="规则说明" desc="查看游戏规则"
+          onClick={() => { setError(''); setShowRules(true); }}
+        />
       </View>
 
       {/* 创建房间弹窗 */}
-      <Dialog open={showCreate} onOpenChange={(open) => setShowCreate(open)}>
-        <DialogContent className="bg-[#1a1f2e] border-gray-700">
+      <Dialog open={showCreate} onOpenChange={(o) => { setShowCreate(o); setError(''); }}>
+        <DialogContent className="bg-[#1a1f2e] text-white border-gray-700">
           <DialogHeader>
-            <DialogTitle className="text-white text-lg font-bold">创建房间</DialogTitle>
+            <DialogTitle className="text-white">创建房间</DialogTitle>
           </DialogHeader>
-          <View className="space-y-4">
-            <View>
-              <Text className="block text-xs text-gray-400 mb-2">你的昵称</Text>
-              <View className="bg-gray-800 rounded-lg px-3 py-2 border border-gray-700">
-                <Input
-                  className="w-full bg-transparent text-sm text-white"
-                  value={hostName}
-                  onInput={(e) => setHostName(e.detail.value)}
-                  placeholder="请输入昵称"
-                  maxlength={8}
-                />
-              </View>
+          <View className="mt-2 space-y-3">
+            <View className="bg-[#2a2f3e] rounded-xl px-3 py-2">
+              <Input
+                className="w-full bg-transparent text-white text-sm"
+                placeholder="输入你的昵称"
+                value={hostName}
+                onInput={(e) => setHostName(e.detail.value)}
+              />
             </View>
             <View>
-              <Text className="block text-xs text-gray-400 mb-2">玩家人数</Text>
-              <View className="flex items-center justify-center gap-4 py-2">
-                {[3, 4, 5, 6, 7, 8].map(n => (
-                  <Button
-                    key={n}
-                    className={`w-10 h-10 rounded-full ${maxPlayers === n ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 border border-gray-700'}`}
-                    onClick={() => setMaxPlayers(n)}
+              <Text className="block text-sm text-gray-400 mb-2">玩家人数：{maxPlayers}人</Text>
+              <View style={{ display: 'flex', flexDirection: 'row', gap: '6px', flexWrap: 'wrap' }}>
+                {[2, 3, 4, 5, 6, 7, 8].map(n => (
+                  <View key={n} onClick={() => setMaxPlayers(n)}
+                    style={{
+                      padding: '6px 14px', borderRadius: 8,
+                      backgroundColor: maxPlayers === n ? '#3b82f6' : '#2a2f3e',
+                      borderWidth: 1,
+                      borderColor: maxPlayers === n ? '#3b82f6' : '#374151',
+                    }}
                   >
-                    <Text className="text-sm">{n}</Text>
-                  </Button>
+                    <Text className={`block text-sm ${maxPlayers === n ? 'text-white font-bold' : 'text-gray-400'}`}>
+                      {n}人
+                    </Text>
+                  </View>
                 ))}
               </View>
             </View>
-            {error && <Text className="block text-xs text-red-400">{error}</Text>}
-            <Button
-              className="w-full h-11 bg-blue-600 hover:bg-blue-500 text-white rounded-xl"
-              onClick={handleCreateRoom}
-              disabled={creating}
+            {error && <Text className="block text-red-400 text-xs">{error}</Text>}
+            <View onClick={creating ? undefined : handleCreateRoom}
+              style={{
+                backgroundColor: creating ? '#1f2937' : '#3b82f6',
+                borderRadius: 12, padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                opacity: creating ? 0.5 : 1,
+              }}
             >
-              <Text>{creating ? '创建中...' : '创建房间'}</Text>
-            </Button>
+              <Text className="block text-white font-bold text-sm">
+                {creating ? '创建中...' : '创建房间'}
+              </Text>
+            </View>
           </View>
         </DialogContent>
       </Dialog>
 
       {/* 加入房间弹窗 */}
-      <Dialog open={showJoin} onOpenChange={(open) => setShowJoin(open)}>
-        <DialogContent className="bg-[#1a1f2e] border-gray-700">
+      <Dialog open={showJoin} onOpenChange={(o) => { setShowJoin(o); setError(''); }}>
+        <DialogContent className="bg-[#1a1f2e] text-white border-gray-700">
           <DialogHeader>
-            <DialogTitle className="text-white text-lg font-bold">加入房间</DialogTitle>
+            <DialogTitle className="text-white">加入房间</DialogTitle>
           </DialogHeader>
-          <View className="space-y-4">
-            <View>
-              <Text className="block text-xs text-gray-400 mb-2">房间号（6位数字）</Text>
-              <View className="bg-gray-800 rounded-lg px-3 py-2 border border-gray-700">
-                <Input
-                  className="w-full bg-transparent text-sm text-white tracking-widest text-center text-lg"
-                  value={roomCode}
-                  onInput={(e) => setRoomCode(e.detail.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="000000"
-                  maxlength={6}
-                />
-              </View>
+          <View className="mt-2 space-y-3">
+            <View className="bg-[#2a2f3e] rounded-xl px-3 py-2">
+              <Input
+                className="w-full bg-transparent text-white text-sm"
+                placeholder="输入房间号"
+                value={roomCode}
+                onInput={(e) => setRoomCode(e.detail.value)}
+              />
             </View>
-            <View>
-              <Text className="block text-xs text-gray-400 mb-2">你的昵称</Text>
-              <View className="bg-gray-800 rounded-lg px-3 py-2 border border-gray-700">
-                <Input
-                  className="w-full bg-transparent text-sm text-white"
-                  value={joinName}
-                  onInput={(e) => setJoinName(e.detail.value)}
-                  placeholder="请输入昵称"
-                  maxlength={8}
-                />
-              </View>
+            <View className="bg-[#2a2f3e] rounded-xl px-3 py-2">
+              <Input
+                className="w-full bg-transparent text-white text-sm"
+                placeholder="输入你的昵称"
+                value={joinName}
+                onInput={(e) => setJoinName(e.detail.value)}
+              />
             </View>
-            {error && <Text className="block text-xs text-red-400">{error}</Text>}
-            <Button
-              className="w-full h-11 bg-blue-600 hover:bg-blue-500 text-white rounded-xl"
-              onClick={handleJoinRoom}
-              disabled={joining}
+            {error && <Text className="block text-red-400 text-xs">{error}</Text>}
+            <View onClick={joining ? undefined : handleJoinRoom}
+              style={{
+                backgroundColor: joining ? '#1f2937' : '#22c55e',
+                borderRadius: 12, padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                opacity: joining ? 0.5 : 1,
+              }}
             >
-              <Text>{joining ? '加入中...' : '加入房间'}</Text>
-            </Button>
+              <Text className="block text-white font-bold text-sm">
+                {joining ? '加入中...' : '加入房间'}
+              </Text>
+            </View>
           </View>
         </DialogContent>
       </Dialog>
 
       {/* 规则说明弹窗 */}
-      <Dialog open={showRules} onOpenChange={(open) => setShowRules(open)}>
-        <DialogContent className="bg-[#1a1f2e] border-gray-700 max-h-[80vh]">
+      <Dialog open={showRules} onOpenChange={(o) => setShowRules(o)}>
+        <DialogContent className="bg-[#1a1f2e] text-white border-gray-700 max-h-[80vh]">
           <DialogHeader>
-            <DialogTitle className="text-white text-lg font-bold">游戏规则</DialogTitle>
+            <DialogTitle className="text-white">📖 游戏规则</DialogTitle>
           </DialogHeader>
-          <View className="max-h-[60vh] overflow-y-auto space-y-4 px-1">
-            <Section title="游戏概述" text="身份推理阵营桌游《无间疑云》的数字化版本，支持3-8人在线联机。玩家扮演警察，但阵营分为忠诚警察和变节黑帮，需找出并消灭敌方首领。" />
-            <Section title="身份判定" text="每人有3张底细牌：持有探长牌→忠诚阵营首领；持有主谋牌→变节阵营首领；无首领牌则按多数牌决定阵营。一人同时持有探长和主谋则独自获胜。" />
-            <Section title="回合行动" text="每回合四选一：①调查：秘密查看1名玩家的1张底细牌 ②取得装备：抽1张装备牌，翻开1张底细牌 ③装备手枪：拿手枪，翻开1张底细牌 ④射击：射击瞄准的玩家。持枪时必须瞄准1人。" />
-            <Section title="中枪处理" text="中枪后翻开所有底细牌：非首领直接淘汰；首领第一次中枪受伤+抽装备，第二次中枪淘汰。" />
-            <Section title="胜利条件" text="主谋被淘汰→忠诚阵营胜；探长被淘汰→变节阵营胜；持有探长+主谋→独狼获胜。" />
-            <Section title="装备牌" text="共16种装备牌：烟雾弹、禁制令、咖啡、勒索信、防弹衣、急救包、瞄准镜、假情报、双倍射击、抢夺、调换、沉默令、侦查令、信号弹、防弹盾、贿赂。" />
+          <View className="mt-2 space-y-3 text-sm text-gray-300 overflow-y-auto" style={{ maxHeight: '60vh' }}>
+            <Text className="block text-gray-400">🎯 目标</Text>
+            <Text className="block text-xs text-gray-400">
+              找出敌方首领并将其淘汰！忠诚警察 vs 变节黑帮，两大阵营的较量。
+            </Text>
+
+            <Text className="block text-gray-400 mt-2">🆔 身份判定</Text>
+            <Text className="block text-xs text-gray-400">
+              每人有3张底细牌。持有「探长」= 忠诚阵营首领，持有「主谋」= 变节阵营首领。无首领牌则看多数牌决定阵营。同时持有探长+主谋则独自获胜。
+            </Text>
+
+            <Text className="block text-gray-400 mt-2">🎮 回合行动</Text>
+            <Text className="block text-xs text-gray-400">
+              • 调查：查看1名玩家的1张底细牌{'\n'}
+              • 取得装备：抽1张装备牌（已有装备则替换）{'\n'}
+              • 手枪：拿1把手枪并瞄准目标{'\n'}
+              • 射击：向瞄准目标开枪
+            </Text>
+
+            <Text className="block text-gray-400 mt-2">💥 中枪处理</Text>
+            <Text className="block text-xs text-gray-400">
+              非首领直接淘汰。首领第一次中枪→受伤+抽装备，第二次中枪→淘汰。淘汰者的装备和手枪放回。
+            </Text>
+
+            <Text className="block text-gray-400 mt-2">🏆 胜利条件</Text>
+            <Text className="block text-xs text-gray-400">
+              主谋被淘汰→忠诚阵营获胜。探长被淘汰→变节阵营获胜。一人持有探长+主谋→独自获胜。
+            </Text>
           </View>
-          <Button className="w-full mt-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl" onClick={() => setShowRules(false)}>
-            <Text>我知道了</Text>
-          </Button>
         </DialogContent>
       </Dialog>
     </View>
   )
 }
 
-const Section = ({ title, text }: { title: string; text: string }) => (
-  <View className="mb-3">
-    <Text className="block text-blue-400 text-sm font-bold mb-1">{title}</Text>
-    <Text className="block text-gray-300 text-xs leading-relaxed">{text}</Text>
-  </View>
-)
+// Menu Button Component - using View directly for better responsiveness
+function MenuBtn({ icon, label, desc, onClick }: {
+  icon: React.ReactNode; label: string; desc: string; onClick: () => void;
+}) {
+  return (
+    <View onClick={onClick}
+      className="hover:opacity-80 active:opacity-70"
+      style={{
+        display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '12px',
+        backgroundColor: '#1a1f2e', borderRadius: 14, padding: '14px 16px',
+        borderWidth: 1, borderColor: '#2a2f3e',
+      }}
+    >
+      <View style={{
+        width: 40, height: 40, borderRadius: 10,
+        backgroundColor: 'rgba(59,130,246,0.1)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+      >
+        {icon}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text className="block text-white text-sm font-bold">{label}</Text>
+        <Text className="block text-gray-500 text-xs mt-1">{desc}</Text>
+      </View>
+      <Text className="block text-gray-600" style={{ fontSize: '18px' }}>›</Text>
+    </View>
+  )
+}
 
 export default IndexPage

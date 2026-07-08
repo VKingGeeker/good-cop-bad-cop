@@ -1,51 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
-import { View, Text, ScrollView } from '@tarojs/components'
+import { View, Text } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
-import {
-  Swords, Target, Crosshair, Search, Package,
-  Heart, EyeOff
-} from 'lucide-react-taro'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Network } from '@/network'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
-// ============ Types ============
-interface ServerCard {
-  type: string
-  faceUp: boolean
-}
-
-interface ServerPlayer {
-  id: string
-  name: string
-  cards: ServerCard[]
-  equipment: { name: string; description: string } | null
-  hasGun: boolean
-  aimingAt: string | null
-  wounded: boolean
-  eliminated: boolean
-  bannedAction: string | null
-  silenced: boolean
-}
-
-interface ServerLog {
-  message: string
-}
-
-// Equipment mapping
 const EQUIPMENT_MAP: Record<string, string> = {
-  '烟雾弹': 'smoke', '禁制令': 'injunction', '咖啡': 'coffee',
-  '勒索信': 'blackmail', '防弹衣': 'vest', '急救包': 'medkit',
-  '瞄准镜': 'scope', '假情报': 'fakeIntel', '双倍射击': 'doubleShot',
-  '抢夺': 'snatch', '调换': 'swap', '沉默令': 'silence',
-  '侦查令': 'recon', '信号弹': 'flare', '防弹盾': 'shield', '贿赂': 'bribe',
-}
-
-const EQUIPMENT_EMOJI: Record<string, string> = {
-  smoke: '💨', injunction: '🚫', coffee: '☕', blackmail: '✉️',
-  vest: '🛡️', medkit: '🏥', scope: '🔍', fakeIntel: '📄',
-  doubleShot: '🔫', snatch: '✋', swap: '🔄', silence: '🤫',
-  recon: '👁️', flare: '🎆', shield: '🛡️', bribe: '💰',
+  'smoke': '烟雾弹', 'injunction': '禁制令', 'coffee': '咖啡',
+  'blackmail': '勒索信', 'vest': '防弹衣', 'medkit': '急救包',
+  'scope': '瞄准镜', 'fakeIntel': '假情报', 'doubleShot': '双倍射击',
+  'snatch': '抢夺', 'swap': '调换', 'silence': '沉默令',
+  'recon': '侦查令', 'flare': '信号弹', 'shield': '防弹盾', 'bribe': '贿赂',
 }
 
 const EQUIPMENT_INFO: Record<string, { name: string; desc: string }> = {
@@ -67,6 +32,12 @@ const EQUIPMENT_INFO: Record<string, { name: string; desc: string }> = {
   bribe: { name: '贿赂', desc: '偷取1名玩家的装备牌' },
 }
 
+interface ServerPlayer {
+  id: string; name: string; alive: boolean; eliminated: boolean; isBot?: boolean;
+  hasGun?: boolean; aimingAt?: string; equipment?: any; wounded?: boolean;
+  cards?: any[]; faceUpCount?: number;
+}
+
 const GAME_PAGE = () => {
   const router = useRouter()
   const roomCode = router.params.roomCode || ''
@@ -75,8 +46,6 @@ const GAME_PAGE = () => {
   const [serverState, setServerState] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [actionModal, setActionModal] = useState<string | null>(null)
-  const [selectedTarget, setSelectedTarget] = useState('')
-  const [selectedAction, setSelectedAction] = useState('')
   const [equipmentResult, setEquipmentResult] = useState<{ name: string; desc: string } | null>(null)
   const [investigateResult, setInvestigateResult] = useState<{ card: string; cardTypeName: string; targetName: string } | null>(null)
   const [notification, setNotification] = useState<{ title: string; msg: string } | null>(null)
@@ -109,6 +78,98 @@ const GAME_PAGE = () => {
     return () => clearInterval(timer)
   }, [fetchGameState])
 
+  const showNotification = (title: string, msg: string) => {
+    setNotification({ title, msg })
+    setTimeout(() => setNotification(null), 3000)
+  }
+
+  const allPlayers: ServerPlayer[] = serverState?.players || []
+  const me = allPlayers.find(p => p.id === playerId)
+  const currentPlayerDeviceId = serverState?.currentPlayerDeviceId || ''
+  const isMyTurn = currentPlayerDeviceId === playerId && me && !me.eliminated
+  const currentPlayerName = allPlayers.find(p => p.id === currentPlayerDeviceId)?.name || '未知'
+  const alivePlayers = allPlayers.filter(p => !p.eliminated)
+  const enemyPlayers = alivePlayers.filter(p => p.id !== playerId)
+
+  const getEquipKey = (equip: any): string | null => {
+    if (!equip) return null
+    const name = typeof equip === 'string' ? equip : equip.name
+    return EQUIPMENT_MAP[name] || name
+  }
+
+  const myEquipmentKey = me?.equipment ? getEquipKey(me.equipment) : null
+
+  const submitAction = async (action: string, target: string = '', extra: any = {}) => {
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      const data: any = { playerId, action }
+      if (target) data.target = target
+      Object.assign(data, extra)
+      const res = await Network.request({
+        url: `/api/game/room/${roomCode}/action`,
+        method: 'POST',
+        data,
+      })
+      const result = res.data as any
+      if (result.code === 0) {
+        const rd = result.data || {}
+        if (rd.result) setInvestigateResult(rd.result)
+        if (rd.equipment) setEquipmentResult(rd.equipment)
+        if (rd.notification) showNotification(rd.notification.title, rd.notification.msg)
+        setActionModal(null)
+        await fetchGameState()
+      } else {
+        Taro.showToast({ title: result.msg || '操作失败', icon: 'none' })
+      }
+    } catch (err: any) {
+      Taro.showToast({ title: err.message || '网络错误', icon: 'none' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const getEquipmentName = (equip: any): string => {
+    if (!equip) return ''
+    const key = typeof equip === 'string' ? equip : equip.name
+    return EQUIPMENT_INFO[key]?.name || EQUIPMENT_MAP[key] || key
+  }
+
+  const getEquipmentDesc = (equip: any): string => {
+    if (!equip) return ''
+    const key = typeof equip === 'string' ? equip : equip.name
+    return EQUIPMENT_INFO[key]?.desc || ''
+  }
+
+  const getMyIdentityText = (): string => {
+    if (!me) return ''
+    const cards = me.cards || []
+    const flipped = cards.filter(c => c.faceUp)
+    const allTypes = cards.map(c => c.identity)
+    if (allTypes.includes('chief') && allTypes.includes('mastermind')) return '☠️ 双面间谍（独自获胜）'
+    if (allTypes.includes('chief')) return '🔍 探长 / 忠诚阵营首领'
+    if (allTypes.includes('mastermind')) return '💀 主谋 / 变节阵营首领'
+    const flippedTypes = flipped.map(c => c.identity)
+    const loyalCount = flippedTypes.filter(t => t === 'loyal').length
+    const traitorCount = flippedTypes.filter(t => t === 'traitor').length
+    if (flipped.length === 0) return '❓ 身份待定'
+    if (loyalCount > traitorCount) return '🔵 忠诚阵营'
+    if (traitorCount > loyalCount) return '🔴 变节阵营'
+    return '❓ 身份待定'
+  }
+
+  const getPlayerBorderColor = (p: ServerPlayer): string => {
+    if (p.eliminated) return '#1f2937'
+    if (currentPlayerDeviceId === p.id) return '#22c55e'
+    if (p.id === playerId) return '#3b82f6'
+    return '#374151'
+  }
+
+  // Distribute players around the border
+  const total = allPlayers.length
+  const topRow = allPlayers.slice(0, Math.ceil(total / 2))
+  const bottomRow = allPlayers.slice(Math.ceil(total / 2))
+
   if (!serverState) {
     return (
       <View className="min-h-screen bg-[#0a0e1a] flex items-center justify-center">
@@ -132,515 +193,466 @@ const GAME_PAGE = () => {
     )
   }
 
-  const allPlayers: ServerPlayer[] = serverState.players || []
-  const me = allPlayers.find(p => p.id === playerId)
-  const currentPlayerDeviceId = serverState.currentPlayerDeviceId || ''
-  const isMyTurn = currentPlayerDeviceId === playerId && me && !me.eliminated
-  const currentPlayerName = allPlayers.find(p => p.id === currentPlayerDeviceId)?.name || '未知'
-  const alivePlayers = allPlayers.filter(p => !p.eliminated)
-  const enemyPlayers = alivePlayers.filter(p => p.id !== playerId)
-
-  const getEquipKey = (equip: any): string | null => {
-    if (!equip) return null
-    const name = typeof equip === 'string' ? equip : equip.name
-    return EQUIPMENT_MAP[name] || name
-  }
-
-  const myEquipmentKey = me?.equipment ? getEquipKey(me.equipment) : null
-
-  const submitAction = async (action: string, target: string = '', extra: any = {}) => {
-    if (submitting) return
-    setSubmitting(true)
-    try {
-      const data: any = { playerId, action }
-      if (target) data.target = target
-      Object.assign(data, extra)
-
-      const res = await Network.request({
-        url: `/api/game/room/${roomCode}/action`,
-        method: 'POST',
-        data,
-      })
-      const result = res.data as any
-      if (result.code === 0) {
-        const rd = result.data || {}
-        if (rd.result) {
-          setInvestigateResult(rd.result)
-        }
-        if (rd.equipment) {
-          setEquipmentResult(rd.equipment)
-        }
-        if (rd.notification) {
-          showNotification(rd.notification.title, rd.notification.msg)
-        }
-        setActionModal(null)
-        setSelectedTarget('')
-        await fetchGameState()
-      } else {
-        Taro.showToast({ title: result.msg || '操作失败', icon: 'none' })
-      }
-    } catch (err: any) {
-      Taro.showToast({ title: err.message || '网络错误', icon: 'none' })
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const showNotification = (title: string, msg: string) => {
-    setNotification({ title, msg })
-    setTimeout(() => setNotification(null), 3500)
-  }
-
-  const handleUseEquipment = async (equipKey: string) => {
-    const needTarget = ['injunction', 'blackmail', 'snatch', 'swap', 'silence', 'recon', 'bribe', 'medkit']
-    const needCard = ['fakeIntel', 'scope']
-
-    if (needTarget.includes(equipKey)) {
-      setSelectedAction(`equip_${equipKey}`)
-      setActionModal('select_target')
-    } else if (needCard.includes(equipKey)) {
-      setSelectedAction(`equip_${equipKey}`)
-      setActionModal('select_card')
-    } else {
-      await submitAction('use_equipment', '', { equipment: equipKey })
-    }
-  }
-
-  const gameLogs: string[] = (serverState.gameLog || []).map((l: ServerLog) => l.message)
-
   return (
-    <View className="min-h-screen bg-[#0a0e1a] flex flex-col pb-16">
+    <View className="min-h-screen bg-[#0a0e1a] flex flex-col" style={{ position: 'relative', overflow: 'hidden' }}>
+      {/* 通知横幅 */}
       {notification && (
-        <View className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-blue-600 to-purple-600 p-4"
-          style={{boxShadow: '0 10px 15px rgba(37,99,235,0.3)'}}
+        <View style={{
+          position: 'absolute', top: 10, left: 10, right: 10, zIndex: 100,
+          backgroundColor: 'rgba(59,130,246,0.9)', borderRadius: 12, padding: '12px 16px',
+        }}
         >
-          <Text className="block text-sm text-white font-bold">{notification.title}</Text>
-          <Text className="block text-xs text-blue-100 mt-1">{notification.msg}</Text>
+          <Text className="block text-white text-sm font-bold">{notification.title}</Text>
+          <Text className="block text-blue-100 text-xs mt-1">{notification.msg}</Text>
         </View>
       )}
 
-      <View className="bg-[#0e1322] border-b border-gray-800 px-6 py-4">
-        <View className="flex items-center justify-between mb-1">
-          <Text className="block text-xs text-gray-500">房间 {roomCode}</Text>
-          <View className="flex items-center gap-2">
-            <View className="flex items-center gap-1">
-              <Swords size={12} color="#f59e0b" />
-              <Text className="block text-xs text-yellow-400">x{serverState.gunCount || 0}</Text>
-            </View>
-            <View className="bg-blue-600 rounded-full px-2 py-0" style={{opacity: 0.2}}>
-              <Text className="text-xs text-blue-400">{serverState.direction === 1 ? '➡' : '⬅'} 回合{serverState.round || 1}</Text>
-            </View>
-          </View>
-        </View>
-        <Text className={`block text-sm font-bold ${isMyTurn ? 'text-green-400' : 'text-gray-400'}`}>
-          {isMyTurn ? '🎯 轮到你了！' : `⏳ ${currentPlayerName} 行动中...`}
-        </Text>
+      {/* 顶部状态栏 */}
+      <View style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '8px 12px', backgroundColor: '#111827',
+      }}
+      >
+        <Text className="block text-xs text-gray-400">房间 {roomCode}</Text>
+        <Text className="block text-xs text-gray-400">第{serverState.round || 1}轮</Text>
+        <Text className="block text-xs text-gray-400">手枪×{serverState.gunCount || 0}</Text>
       </View>
 
-      <ScrollView scrollY className="flex-1">
-        {me && (
-          <View className="px-6 pt-4">
-            <Text className="block text-xs text-gray-400 mb-2">我的底细牌</Text>
-            <View className="flex gap-2 mb-2">
-              {me.cards.map((card, i) => (
-                <View key={i} className="w-20 h-28 rounded-xl border-2 flex items-center justify-center"
-                  style={{
-                    borderColor: card.faceUp
-                      ? card.type === 'chief' ? '#eab308' : card.type === 'mastermind' ? '#ef4444' : card.type === 'traitor' ? '#b91c1c' : '#3b82f6'
-                      : '#4b5563',
-                    backgroundColor: card.faceUp
-                      ? card.type === 'chief' ? 'rgba(234,179,8,0.3)' : card.type === 'mastermind' ? 'rgba(239,68,68,0.3)' : card.type === 'traitor' ? 'rgba(185,28,28,0.2)' : 'rgba(59,130,246,0.3)'
-                      : 'rgba(55,65,81,0.5)'
-                  }}
-                >
-                  <View className="text-center">
-                    {card.faceUp ? (
-                      <View>
-                        <Text className={`block text-lg ${card.type === 'chief' ? 'text-yellow-400' : card.type === 'mastermind' ? 'text-red-400' : card.type === 'traitor' ? 'text-red-500' : 'text-blue-400'}`}>
-                          {card.type === 'chief' ? '🔍' : card.type === 'mastermind' ? '🎭' : card.type === 'traitor' ? '🔴' : '🔵'}
-                        </Text>
-                        <Text className="block text-xs text-white mt-1">
-                          {card.type === 'chief' ? '探长' : card.type === 'mastermind' ? '主谋' : card.type === 'traitor' ? '变节' : '忠诚'}
-                        </Text>
-                      </View>
-                    ) : (
-                      <View className="items-center justify-center">
-                        <EyeOff size={20} color="#4b5563" />
-                        <Text className="block text-xs text-gray-600 mt-1">底细</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              ))}
+      {/* 玩家布局 - 边框围一圈 */}
+      <View className="flex-1" style={{ position: 'relative', padding: 0 }}>
+        {/* 身份提示 */}
+        {me && !me.eliminated && (
+          <View style={{
+            position: 'absolute', top: 8, left: 0, right: 0, zIndex: 10,
+            display: 'flex', justifyContent: 'center',
+          }}
+          >
+            <View style={{
+              backgroundColor: 'rgba(59,130,246,0.15)', borderRadius: 20,
+              padding: '4px 16px', borderWidth: 1, borderColor: 'rgba(59,130,246,0.3)',
+            }}
+            >
+              <Text className="block text-xs text-blue-300">{getMyIdentityText()}</Text>
             </View>
-            {/* 身份提示 */}
-            <View className="bg-gray-800 bg-opacity-50 rounded-lg p-2 mb-1">
-              <View className="flex items-center gap-2">
-                {(() => {
-                  const hasChief = me.cards.some(c => c.faceUp && c.type === 'chief')
-                  const hasMaster = me.cards.some(c => c.faceUp && c.type === 'mastermind')
-                  const loyalCount = me.cards.filter(c => c.faceUp && (c.type === 'loyal' || c.type === 'chief')).length
-                  const traitorCount = me.cards.filter(c => c.faceUp && (c.type === 'traitor' || c.type === 'mastermind')).length
-                  const faceUpCount = me.cards.filter(c => c.faceUp).length
-                  
-                  if (hasChief && hasMaster) {
-                    return <><Text className="text-yellow-400">⭐</Text><Text className="block text-xs text-yellow-300 font-bold">你同时持有探长和主谋！即将独自获胜！</Text></>
+          </View>
+        )}
+
+        {/* 当前回合提示 */}
+        <View style={{
+          position: 'absolute', top: 38, left: 0, right: 0, zIndex: 10,
+          display: 'flex', justifyContent: 'center',
+        }}
+        >
+          <Text className={`block text-xs font-bold ${isMyTurn ? 'text-green-400' : 'text-gray-400'}`}>
+            {isMyTurn ? '🎯 轮到你了！' : `⏳ ${currentPlayerName} 行动中...`}
+          </Text>
+        </View>
+
+        {/* Top Row Players */}
+        <View style={{
+          position: 'absolute', top: 58, left: 0, right: 0, zIndex: 5,
+          display: 'flex', justifyContent: 'center', gap: '8px', padding: '0 8px',
+        }}
+        >
+          {topRow.map((p) => (
+            <PlayerAvatar
+              key={p.id}
+              player={p}
+              isMe={p.id === playerId}
+              isCurrent={currentPlayerDeviceId === p.id && !isMyTurn}
+              borderColor={getPlayerBorderColor(p)}
+              allPlayers={allPlayers}
+              onShowEquipment={(pl) => {
+                if (pl.equipment) {
+                  showNotification(`🎒 ${pl.name}的装备`, getEquipmentName(pl.equipment) + ' - ' + getEquipmentDesc(pl.equipment))
+                }
+              }}
+            />
+          ))}
+        </View>
+
+        {/* Bottom Row Players */}
+        {bottomRow.length > 0 && (
+          <View style={{
+            position: 'absolute', bottom: 140, left: 0, right: 0, zIndex: 5,
+            display: 'flex', justifyContent: 'center', gap: '8px', padding: '0 8px',
+          }}
+          >
+            {bottomRow.map((p) => (
+              <PlayerAvatar
+                key={p.id}
+                player={p}
+                isMe={p.id === playerId}
+                isCurrent={currentPlayerDeviceId === p.id && !isMyTurn}
+                borderColor={getPlayerBorderColor(p)}
+                allPlayers={allPlayers}
+                onShowEquipment={(pl) => {
+                  if (pl.equipment) {
+                    showNotification(`🎒 ${pl.name}的装备`, getEquipmentName(pl.equipment) + ' - ' + getEquipmentDesc(pl.equipment))
                   }
-                  if (hasChief) {
-                    return <><Text className="text-yellow-400">⭐</Text><Text className="block text-xs text-yellow-300 font-bold">你是忠诚阵营首领——探长！</Text></>
-                  }
-                  if (hasMaster) {
-                    return <><Text className="text-red-400">💀</Text><Text className="block text-xs text-red-300 font-bold">你是变节阵营首领——主谋！</Text></>
-                  }
-                  if (faceUpCount >= 3 || (faceUpCount >= 2 && loyalCount !== traitorCount)) {
-                    // 所有牌翻开或有明确倾向
-                    if (loyalCount > traitorCount) {
-                      return <><Text className="text-blue-400">🔵</Text><Text className="block text-xs text-blue-300 font-bold">你是忠诚阵营的警察！</Text></>
-                    } else if (traitorCount > loyalCount) {
-                      return <><Text className="text-red-400">🔴</Text><Text className="block text-xs text-red-300 font-bold">你是变节阵营的黑帮！</Text></>
-                    }
-                  }
-                  return <><Text className="text-gray-400">❓</Text><Text className="block text-xs text-gray-400">底细未完全翻开，身份待定...</Text></>
-                })()}
+                }}
+              />
+            ))}
+          </View>
+        )}
+
+        {/* 瞄准线/箭头 - 简化版：直接用文字表示 */}
+        {allPlayers.filter(p => p.hasGun && p.aimingAt && !p.eliminated).map(shooter => {
+          const target = allPlayers.find(p => p.id === shooter.aimingAt)
+          if (!target) return null
+          return (
+            <View key={`aim-${shooter.id}`} style={{
+              position: 'absolute', top: '50%', left: 0, right: 0, zIndex: 3,
+              display: 'flex', justifyContent: 'center',
+            }}
+            >
+              <View style={{
+                backgroundColor: 'rgba(239,68,68,0.2)', borderRadius: 12,
+                padding: '2px 12px', borderWidth: 1, borderColor: 'rgba(239,68,68,0.4)',
+              }}
+              >
+                <Text className="block text-xs text-red-400">
+                  🔫 {shooter.name} → {target.name}
+                </Text>
               </View>
             </View>
-          </View>
-        )}
-
-        {myEquipmentKey && (
-          <View className="px-6 pt-3">
-            <Text className="block text-xs text-gray-400 mb-2">装备</Text>
-            <Card className="bg-gradient-to-r from-purple-900 to-blue-900 rounded-xl" style={{opacity: 0.9}}>
-              <CardContent className="p-3 flex items-center justify-between">
-                <View className="flex items-center gap-2">
-                  <Text className="text-base">{EQUIPMENT_EMOJI[myEquipmentKey] || '📦'}</Text>
-                  <View>
-                    <Text className="block text-sm text-white font-medium">{EQUIPMENT_INFO[myEquipmentKey]?.name || myEquipmentKey}</Text>
-                    <Text className="block text-xs text-gray-400">{EQUIPMENT_INFO[myEquipmentKey]?.desc || ''}</Text>
-                  </View>
-                </View>
-                {isMyTurn && (
-                  <Button className="bg-purple-600 text-white rounded-lg px-3 py-1 text-xs" onClick={() => handleUseEquipment(myEquipmentKey)}>
-                    <Text>使用</Text>
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          </View>
-        )}
-
-        <View className="px-6 pt-4">
-          <Text className="block text-xs text-gray-400 mb-2">
-            玩家 ({alivePlayers.length}/{allPlayers.length})
-          </Text>
-          <View className="space-y-2">
-            {allPlayers.map((p) => {
-              const faceUpCount = p.cards.filter(c => c.faceUp && c.type !== 'unknown').length
-              const isCurrentTurn = p.id === currentPlayerDeviceId
-              return (
-                <Card key={p.id} className="rounded-xl"
-                  style={{
-                    backgroundColor: p.id === playerId ? 'rgba(30,64,175,0.2)' : isCurrentTurn && !isMyTurn ? 'rgba(22,163,74,0.2)' : p.eliminated ? 'rgba(17,24,39,0.5)' : '#1a1f2e',
-                    borderColor: p.id === playerId ? 'rgba(37,99,235,0.4)' : isCurrentTurn && !isMyTurn ? 'rgba(22,163,74,0.4)' : p.eliminated ? '#1f2937' : '#374151',
-                    opacity: p.eliminated ? 0.5 : 1,
-                    borderWidth: 1,
-                  }}
-                >
-                  <CardContent className="p-3">
-                    <View className="flex items-center gap-2">
-                      <View className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${p.eliminated ? 'bg-gray-800' : p.id === playerId ? 'bg-blue-600' : isCurrentTurn ? 'bg-green-600' : 'bg-gray-700'}`}>
-                        <Text className="text-xs text-white">{p.name.charAt(0)}</Text>
-                      </View>
-                      <View className="flex-1 min-w-0">
-                        <View className="flex items-center gap-1 flex-wrap">
-                          <Text className={`block text-sm font-medium ${p.eliminated ? 'text-gray-500 line-through' : 'text-white'}`}>{p.name}</Text>
-                          {p.wounded && <View className="bg-red-600 rounded px-1"><Heart size={10} color="#fca5a5" /></View>}
-                          {p.eliminated && <View className="bg-gray-700 rounded px-1"><Text className="text-xs text-gray-400">淘汰</Text></View>}
-                          {p.hasGun && <Swords size={12} color="#f59e0b" />}
-                        </View>
-                        <View className="flex items-center gap-1 mt-1 flex-wrap">
-                          <Text className="block text-xs text-gray-500">底细 {faceUpCount}/{p.cards.length}</Text>
-                          {p.equipment && (
-                            <Text className="block text-xs text-purple-400">
-                              {EQUIPMENT_EMOJI[EQUIPMENT_MAP[p.equipment.name] || ''] || '📦'} {p.equipment.name}
-                            </Text>
-                          )}
-                          {p.aimingAt && !p.eliminated && (
-                            <Text className="block text-xs text-yellow-500">
-                              🎯 {allPlayers.find(p2 => p2.id === p.aimingAt)?.name || '?'}
-                            </Text>
-                          )}
-                        </View>
-                      </View>
-                      {isMyTurn && p.id !== playerId && !p.eliminated && (
-                        <View className="flex gap-1 flex-shrink-0">
-                          <Button className="w-7 h-7 rounded-lg flex items-center justify-center"
-                            style={{backgroundColor: 'rgba(37,99,235,0.3)'}}
-                            onClick={() => { setActionModal('investigate_target'); setSelectedTarget(p.id) }}
-                          >
-                            <Search size={12} color="#60a5fa" />
-                          </Button>
-                          <Button className="w-7 h-7 rounded-lg flex items-center justify-center"
-                            style={{backgroundColor: 'rgba(239,68,68,0.3)'}}
-                            onClick={() => { setActionModal('shoot_confirm'); setSelectedTarget(p.id) }}
-                          >
-                            <Crosshair size={12} color="#f87171" />
-                          </Button>
-                        </View>
-                      )}
-                    </View>
-                  </CardContent>
-                </Card>
-              )
-            })}
-          </View>
-        </View>
-
-        {isMyTurn && (
-          <View className="px-6 pt-6 pb-4">
-            <Text className="block text-xs text-gray-400 mb-3">选择行动</Text>
-            <View className="grid grid-cols-2 gap-3">
-              <ActionCard
-                icon={<Search size={20} color="#3b82f6" />}
-                title="调查"
-                desc="查看1名玩家的1张底细牌"
-                onClick={() => setActionModal('investigate_target')}
-                disabled={!enemyPlayers.length}
-              />
-              <ActionCard
-                icon={<Package size={20} color="#8b5cf6" />}
-                title="取得装备"
-                desc="抽1张装备牌，翻开1张底细牌"
-                onClick={() => setActionModal('equip_flip')}
-              />
-              <ActionCard
-                icon={<Target size={20} color="#f59e0b" />}
-                title="装备手枪"
-                desc="拿手枪+翻开1张底细牌"
-                onClick={() => setActionModal('gun_flip')}
-                disabled={!serverState.gunCount || serverState.gunCount <= 0}
-              />
-              <ActionCard
-                icon={<Crosshair size={20} color="#ef4444" />}
-                title="射击"
-                desc="射击瞄准的玩家"
-                onClick={() => setActionModal('shoot_confirm')}
-                disabled={!me?.hasGun || !me?.aimingAt}
-                subtitle={!me?.hasGun ? '需先装手枪' : !me?.aimingAt ? '未瞄准' : undefined}
-              />
-            </View>
-          </View>
-        )}
-
-        <View className="px-6 pt-4 pb-20">
-          <Text className="block text-xs text-gray-400 mb-2">游戏日志</Text>
-          <View className="bg-gray-900 rounded-xl max-h-32 overflow-y-auto" style={{border: '1px solid #1f2937'}}>
-            <View className="p-3">
-              {gameLogs.slice(-20).reverse().map((log, i) => (
-                <Text key={i} className="block text-xs text-gray-400 mb-1 leading-relaxed">{log}</Text>
-              ))}
-              {gameLogs.length === 0 && (
-                <Text className="block text-xs text-gray-600 text-center py-2">暂无日志</Text>
-              )}
-            </View>
-          </View>
-        </View>
-      </ScrollView>
-
-      {/* 调查选择目标 */}
-      <Modal visible={actionModal === 'investigate_target'} title="选择调查目标" onClose={() => setActionModal(null)}>
-        {enemyPlayers.map(p => (
-          <Button key={p.id} className="w-full bg-gray-800 text-gray-200 rounded-xl mb-2 py-3" style={{border: '1px solid #374151'}}
-            onClick={() => { setSelectedTarget(p.id); setActionModal('investigate_card') }}
-          >
-            <Text className="block text-sm">{p.name}</Text>
-          </Button>
-        ))}
-        <Button variant="secondary" className="w-full bg-gray-800 text-gray-400 rounded-xl py-2 mt-1" onClick={() => setActionModal(null)}>
-          <Text>取消</Text>
-        </Button>
-      </Modal>
-
-      <Modal visible={actionModal === 'investigate_card'} title="选择底细牌" onClose={() => setActionModal(null)}>
-        <Text className="block text-xs text-gray-400 mb-3">
-          查看 {allPlayers.find(p => p.id === selectedTarget)?.name} 的第几张底细牌
-        </Text>
-        {[0, 1, 2].map(i => (
-          <Button key={i} className="w-full bg-gray-800 text-gray-200 rounded-xl mb-2 py-3" style={{border: '1px solid #374151'}}
-            onClick={() => submitAction('investigate', selectedTarget, { cardIndex: i })}
-          >
-            <Text>第 {i + 1} 张底细牌</Text>
-          </Button>
-        ))}
-      </Modal>
-
-      <Modal visible={!!investigateResult} title="调查结果" onClose={() => setInvestigateResult(null)}>
-        <View className="flex items-center justify-center py-4">
-          <View className="text-center">
-            <Text className="block text-sm text-gray-400 mb-3">
-              {investigateResult?.targetName} 的底细牌
-            </Text>
-            <View className="w-24 h-32 rounded-xl border-2 flex items-center justify-center mx-auto"
-              style={{
-                borderColor: investigateResult?.card === 'chief' ? '#eab308' : investigateResult?.card === 'mastermind' ? '#ef4444' : investigateResult?.card === 'traitor' ? '#b91c1c' : '#3b82f6',
-                backgroundColor: investigateResult?.card === 'chief' ? 'rgba(234,179,8,0.3)' : investigateResult?.card === 'mastermind' ? 'rgba(239,68,68,0.3)' : investigateResult?.card === 'traitor' ? 'rgba(185,28,28,0.2)' : 'rgba(59,130,246,0.3)'
-              }}
-            >
-              <Text className={`block text-2xl ${investigateResult?.card === 'chief' ? 'text-yellow-400' : investigateResult?.card === 'mastermind' ? 'text-red-400' : investigateResult?.card === 'traitor' ? 'text-red-500' : 'text-blue-400'}`}>
-                {investigateResult?.card === 'chief' ? '🔍' : investigateResult?.card === 'mastermind' ? '🎭' : investigateResult?.card === 'traitor' ? '🔴' : '🔵'}
-              </Text>
-              <Text className={`block text-xs mt-1 ${investigateResult?.card === 'traitor' || investigateResult?.card === 'mastermind' ? 'text-red-400' : 'text-blue-400'}`}>
-                {investigateResult?.card === 'chief' ? '探长' : investigateResult?.card === 'mastermind' ? '主谋' : investigateResult?.card === 'traitor' ? '变节' : '忠诚'}
-              </Text>
-            </View>
-            <Text className="block text-xs text-yellow-400 text-center mt-3">仅你可见，关闭后消失</Text>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={actionModal === 'equip_flip'} title="取得装备" onClose={() => setActionModal(null)}>
-        <Text className="block text-xs text-gray-400 mb-3">选择要翻开的底细牌</Text>
-        {me?.cards.map((card, i) => (
-          !card.faceUp ? (
-            <Button key={i} className="w-full bg-gray-800 text-gray-200 rounded-xl mb-2 py-3" style={{border: '1px solid #374151'}}
-              onClick={() => submitAction('equip', '', { cardIndex: i })}
-            >
-              <Text>翻开第 {i + 1} 张</Text>
-            </Button>
-          ) : null
-        ))}
-        {me?.cards.filter(c => !c.faceUp).length === 0 && (
-          <Text className="block text-xs text-gray-500 text-center py-2">所有底细牌已翻开</Text>
-        )}
-      </Modal>
-
-      <Modal visible={actionModal === 'gun_flip'} title="装备手枪" onClose={() => setActionModal(null)}>
-        <Text className="block text-xs text-gray-400 mb-3">选择要翻开的底细牌</Text>
-        {me?.cards.map((card, i) => (
-          !card.faceUp ? (
-            <Button key={i} className="w-full bg-gray-800 text-gray-200 rounded-xl mb-2 py-3" style={{border: '1px solid #374151'}}
-              onClick={() => { submitAction('gun', '', { cardIndex: i }); setActionModal('aim_target') }}
-            >
-              <Text>翻开第 {i + 1} 张并拿枪</Text>
-            </Button>
-          ) : null
-        ))}
-      </Modal>
-
-      {/* 选择瞄准目标 */}
-      <Modal visible={actionModal === 'aim_target'} title="选择瞄准目标" onClose={() => setActionModal(null)}>
-        {enemyPlayers.map(p => (
-          <Button key={p.id} className="w-full bg-gray-800 text-gray-200 rounded-xl mb-2 py-3" style={{border: '1px solid #374151'}}
-            onClick={() => { submitAction('aim', p.id); setActionModal(null) }}
-          >
-            <Target size={14} className="mr-2" color="#9ca3af" />
-            <Text>{p.name}</Text>
-          </Button>
-        ))}
-      </Modal>
-
-      <Modal visible={actionModal === 'shoot_confirm'} title="确认射击" onClose={() => setActionModal(null)}>
-        <View className="rounded-xl p-4 mb-4" style={{backgroundColor: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.3)'}}>
-          <Text className="block text-sm text-red-400 text-center">
-            确定射击 {selectedTarget ? allPlayers.find(p => p.id === selectedTarget)?.name : me?.aimingAt ? allPlayers.find(p => p.id === me.aimingAt)?.name : '目标'}？
-          </Text>
-        </View>
-        <Button className="w-full bg-red-600 text-white rounded-xl py-3"
-          onClick={() => { submitAction('shoot', me?.aimingAt || selectedTarget); setActionModal(null) }}
-          disabled={submitting}
-        >
-          <Crosshair size={16} className="mr-2" color="#ffffff" />
-          <Text>确认射击</Text>
-        </Button>
-        <Button variant="secondary" className="w-full bg-gray-800 text-gray-400 rounded-xl py-3 mt-2" onClick={() => setActionModal(null)}>
-          <Text>取消</Text>
-        </Button>
-      </Modal>
-
-      <Modal visible={actionModal === 'select_target'} title="选择目标玩家" onClose={() => setActionModal(null)}>
-        {enemyPlayers.map(p => (
-          <Button key={p.id} className="w-full bg-gray-800 text-gray-200 rounded-xl mb-2 py-3" style={{border: '1px solid #374151'}}
-            onClick={() => { const eq = selectedAction.replace('equip_', ''); submitAction('use_equipment', p.id, { equipment: eq }); setActionModal(null) }}
-          >
-            <Text className="block text-sm">{p.name}</Text>
-          </Button>
-        ))}
-        <Button variant="secondary" className="w-full bg-gray-800 text-gray-400 rounded-xl py-2 mt-1" onClick={() => setActionModal(null)}>
-          <Text>取消</Text>
-        </Button>
-      </Modal>
-
-      <Modal visible={actionModal === 'select_card'} title="选择底细牌" onClose={() => setActionModal(null)}>
-        {me?.cards.map((card, i) => {
-          const equipName = selectedAction.replace('equip_', '')
-          return (
-            <Button key={i} className="w-full bg-gray-800 text-gray-200 rounded-xl mb-2 py-3" style={{border: '1px solid #374151'}}
-              onClick={() => { submitAction('use_equipment', '', { equipment: equipName, cardIndex: i }); setActionModal(null) }}
-            >
-              <Text>第 {i + 1} 张 {card.faceUp ? '(已翻开)' : '(未翻开)'}</Text>
-            </Button>
           )
         })}
-      </Modal>
 
-      <Modal visible={!!equipmentResult} title="获得装备" onClose={() => setEquipmentResult(null)}>
-        <View className="flex items-center justify-center py-4">
-          <Text className="block text-3xl mb-2">{EQUIPMENT_EMOJI[EQUIPMENT_MAP[equipmentResult?.name || ''] || ''] || '📦'}</Text>
-          <Text className="block text-white text-lg font-bold mb-1">{equipmentResult?.name}</Text>
-          <Text className="block text-xs text-gray-400 text-center">{equipmentResult?.desc}</Text>
-        </View>
-      </Modal>
+        {/* 调查结果显示 */}
+        {investigateResult && (
+          <View style={{
+            position: 'absolute', top: '35%', left: 0, right: 0, zIndex: 50,
+            display: 'flex', justifyContent: 'center',
+          }}
+          >
+            <View style={{
+              backgroundColor: 'rgba(17,24,39,0.95)', borderRadius: 16,
+              padding: '16px 24px', borderWidth: 1, borderColor: 'rgba(59,130,246,0.5)',
+              margin: '0 32px',
+            }}
+            >
+              <Text className="block text-sm text-blue-300 mb-2">🔍 调查结果</Text>
+              <Text className="block text-base text-white font-bold">
+                {investigateResult.targetName} 的第{investigateResult.card}张底细牌是:
+              </Text>
+              <View style={{
+                backgroundColor: investigateResult.cardTypeName === '变节' || investigateResult.cardTypeName === '主谋'
+                  ? 'rgba(239,68,68,0.2)' : 'rgba(59,130,246,0.2)',
+                borderRadius: 8, padding: '8px 16px', marginTop: 8,
+                borderWidth: 1,
+                borderColor: investigateResult.cardTypeName === '变节' || investigateResult.cardTypeName === '主谋'
+                  ? 'rgba(239,68,68,0.5)' : 'rgba(59,130,246,0.5)',
+              }}
+              >
+                <Text className={`block text-center font-bold text-lg ${
+                  investigateResult.cardTypeName === '变节' || investigateResult.cardTypeName === '主谋'
+                    ? 'text-red-400' : 'text-blue-400'
+                }`}
+                >
+                  {investigateResult.cardTypeName}
+                </Text>
+              </View>
+              <Button className="bg-blue-600 text-white rounded-xl px-4 py-1 mt-3"
+                onClick={() => setInvestigateResult(null)}
+              >
+                <Text>确认</Text>
+              </Button>
+            </View>
+          </View>
+        )}
+
+        {/* 装备获取结果显示 */}
+        {equipmentResult && (
+          <View style={{
+            position: 'absolute', top: '35%', left: 0, right: 0, zIndex: 50,
+            display: 'flex', justifyContent: 'center',
+          }}
+          >
+            <View style={{
+              backgroundColor: 'rgba(17,24,39,0.95)', borderRadius: 16,
+              padding: '16px 24px', borderWidth: 1, borderColor: 'rgba(250,204,21,0.5)',
+              margin: '0 32px',
+            }}
+            >
+              <Text className="block text-sm text-yellow-300 mb-2">🎒 获得装备</Text>
+              <Text className="block text-white font-bold text-lg">{equipmentResult.name}</Text>
+              <Text className="block text-gray-400 text-xs mt-1">{equipmentResult.desc}</Text>
+              <Button className="bg-yellow-600 text-white rounded-xl px-4 py-1 mt-3"
+                onClick={() => setEquipmentResult(null)}
+              >
+                <Text>确认</Text>
+              </Button>
+            </View>
+          </View>
+        )}
+      </View>
+
+      {/* 底部行动区 */}
+      <View style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 20,
+        backgroundColor: '#111827', borderTopWidth: 1, borderTopColor: '#1f2937',
+        padding: '8px 12px', paddingBottom: '12px',
+      }}
+      >
+        {isMyTurn ? (
+          <>
+            {/* 行动按钮网格 */}
+            <View style={{ display: 'flex', flexDirection: 'row', gap: '6px', marginBottom: '8px' }}>
+              <ActionBtn icon="🔍" label="调查" desc="查看底细牌"
+                onClick={() => setActionModal('investigate')}
+              />
+              <ActionBtn icon="🎒" label="取得装备" desc="抽1张装备"
+                onClick={() => setActionModal('equip')}
+              />
+              <ActionBtn icon="🔫" label="手枪" desc="拿手枪+瞄准"
+                onClick={() => setActionModal('gun')} disabled={!serverState.gunCount}
+              />
+              <ActionBtn icon="💥" label="射击" desc="开枪"
+                onClick={() => setActionModal('shoot')}
+                disabled={!(me?.hasGun && me?.aimingAt)}
+              />
+            </View>
+
+            {/* 装备使用（如果有装备） */}
+            {myEquipmentKey && (
+              <View style={{ display: 'flex', flexDirection: 'row', gap: '6px' }}>
+                <ActionBtn icon="⚡" label={`使用 ${getEquipmentName(me?.equipment)}`}
+                  desc={getEquipmentDesc(me?.equipment)}
+                  onClick={() => setActionModal('useEquipment')}
+                />
+              </View>
+            )}
+          </>
+        ) : (
+          <Text className="block text-center text-gray-500 text-xs py-3">
+            ⏳ 等待 {currentPlayerName} 行动...
+          </Text>
+        )}
+      </View>
+
+      {/* 行动弹窗: 调查 */}
+      <Dialog open={actionModal === 'investigate'} onOpenChange={(o) => !o && setActionModal(null)}>
+        <DialogContent className="bg-[#1a1f2e] text-white border-gray-700">
+          <DialogHeader>
+            <DialogTitle className="text-white">🔍 调查目标</DialogTitle>
+          </DialogHeader>
+          <View className="space-y-2 mt-2">
+            {enemyPlayers.map(p => (
+              <Button key={p.id}
+                className="bg-[#2a2f3e] text-white rounded-xl py-3 w-full text-left"
+                onClick={() => {
+                  submitAction('investigate', p.id)
+                }}
+              >
+                <Text>{p.name}</Text>
+              </Button>
+            ))}
+          </View>
+        </DialogContent>
+      </Dialog>
+
+      {/* 行动弹窗: 装备 */}
+      <Dialog open={actionModal === 'equip'} onOpenChange={(o) => !o && setActionModal(null)}>
+        <DialogContent className="bg-[#1a1f2e] text-white border-gray-700">
+          <DialogHeader>
+            <DialogTitle className="text-white">🎒 取得装备</DialogTitle>
+          </DialogHeader>
+          <Text className="block text-gray-400 text-xs mt-2 mb-3">
+            {me?.equipment ? '已有装备将被放回牌库' : ''}
+          </Text>
+          <Button className="bg-yellow-600 text-white rounded-xl py-3 w-full"
+            onClick={() => submitAction('equip')}
+          >
+            <Text>抽装备牌</Text>
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* 行动弹窗: 手枪 */}
+      <Dialog open={actionModal === 'gun'} onOpenChange={(o) => !o && setActionModal(null)}>
+        <DialogContent className="bg-[#1a1f2e] text-white border-gray-700">
+          <DialogHeader>
+            <DialogTitle className="text-white">🔫 拿手枪</DialogTitle>
+          </DialogHeader>
+          <Text className="block text-gray-400 text-xs mt-2 mb-3">选择瞄准目标：</Text>
+          <View className="space-y-2">
+            {enemyPlayers.map(p => (
+              <Button key={p.id}
+                className="bg-[#2a2f3e] text-white rounded-xl py-3 w-full text-left"
+                onClick={() => submitAction('gun', p.id)}
+              >
+                <Text>🎯 {p.name}</Text>
+              </Button>
+            ))}
+          </View>
+        </DialogContent>
+      </Dialog>
+
+      {/* 行动弹窗: 射击 */}
+      <Dialog open={actionModal === 'shoot'} onOpenChange={(o) => !o && setActionModal(null)}>
+        <DialogContent className="bg-[#1a1f2e] text-white border-gray-700">
+          <DialogHeader>
+            <DialogTitle className="text-red-400">💥 确认射击</DialogTitle>
+          </DialogHeader>
+          <Text className="block text-gray-300 text-sm mt-2 mb-3">
+            你当前瞄准了：{allPlayers.find(p => p.id === me?.aimingAt)?.name || '无人'}
+          </Text>
+          <View style={{ display: 'flex', flexDirection: 'row', gap: '8px' }}>
+            <Button className="bg-red-600 text-white rounded-xl py-3 flex-1"
+              onClick={() => submitAction('shoot')}
+            >
+              <Text>💥 开枪</Text>
+            </Button>
+            <Button className="bg-gray-600 text-white rounded-xl py-3 flex-1"
+              onClick={() => setActionModal(null)}
+            >
+              <Text>取消</Text>
+            </Button>
+          </View>
+        </DialogContent>
+      </Dialog>
+
+      {/* 装备使用弹窗 */}
+      <Dialog open={actionModal === 'useEquipment'} onOpenChange={(o) => !o && setActionModal(null)}>
+        <DialogContent className="bg-[#1a1f2e] text-white border-gray-700">
+          <DialogHeader>
+            <DialogTitle className="text-yellow-400">⚡ 使用装备</DialogTitle>
+          </DialogHeader>
+          <Text className="block text-white text-sm mt-2 mb-1 font-bold">
+            {myEquipmentKey ? getEquipmentName(me?.equipment) : ''}
+          </Text>
+          <Text className="block text-gray-400 text-xs mb-3">
+            {myEquipmentKey ? getEquipmentDesc(me?.equipment) : ''}
+          </Text>
+          <View className="space-y-2">
+            <Button className="bg-yellow-600 text-white rounded-xl py-3 w-full"
+              onClick={() => { submitAction('useEquipment') }}
+            >
+              <Text>使用</Text>
+            </Button>
+            <Button className="bg-gray-600 text-white rounded-xl py-3 w-full"
+              onClick={() => setActionModal(null)}
+            >
+              <Text>取消</Text>
+            </Button>
+          </View>
+        </DialogContent>
+      </Dialog>
+
+      {/* 安全区域 */}
+      <View style={{ height: '110px' }} />
     </View>
   )
 }
 
-const ActionCard = ({
-  icon, title, desc, onClick, disabled, subtitle
-}: {
-  icon: React.ReactNode; title: string; desc: string
-  onClick: () => void; disabled?: boolean; subtitle?: string
-}) => (
-  <Button
-    className={`relative p-4 rounded-xl text-left flex items-start gap-3 ${disabled ? 'opacity-50' : ''}`}
-    onClick={onClick}
-    disabled={disabled}
-    style={{
-      backgroundColor: disabled ? 'rgba(17,24,39,0.5)' : '#1a1f2e',
-      border: disabled ? '1px solid #1f2937' : '1px solid #374151',
-    }}
-  >
-    <View className="flex-shrink-0 mt-1">{icon}</View>
-    <View className="flex-1 min-w-0">
-      <Text className="block text-sm text-white font-medium">{title}</Text>
-      <Text className="block text-xs text-gray-500 mt-1 leading-relaxed">{desc}</Text>
-      {subtitle && <Text className="block text-xs text-yellow-500 mt-1">{subtitle}</Text>}
-    </View>
-  </Button>
-)
+// Player Avatar Component
+function PlayerAvatar({ player, isMe, isCurrent, borderColor, allPlayers, onShowEquipment }: {
+  player: ServerPlayer; isMe: boolean; isCurrent: boolean;
+  borderColor: string; allPlayers: ServerPlayer[];
+  onShowEquipment: (p: ServerPlayer) => void;
+}) {
+  const initials = player.name.slice(0, 2)
+  const targetName = player.hasGun && player.aimingAt
+    ? allPlayers.find(p => p.id === player.aimingAt)?.name || '' : ''
 
-const Modal = ({
-  visible, title, children, onClose
-}: {
-  visible: boolean; title: string; children: React.ReactNode; onClose: () => void
-}) => {
-  if (!visible) return null
   return (
-    <View className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}
-      style={{backgroundColor: 'rgba(0,0,0,0.6)'}}
+    <View style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
+      width: player.eliminated ? '64px' : '64px',
+      opacity: player.eliminated ? 0.4 : 1,
+    }}
     >
-      <View className="rounded-2xl w-4/5 max-w-sm p-5" style={{backgroundColor: '#1a1f2e', border: '1px solid #374151'}}
-        onClick={e => e.stopPropagation()}
+      {/* Avatar circle */}
+      <View style={{
+        width: 44, height: 44, borderRadius: 22,
+        backgroundColor: player.eliminated ? '#1f2937' : isMe ? '#1e40af' : '#1a1f2e',
+        borderWidth: 2, borderColor: borderColor,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        position: 'relative',
+      }}
       >
-        <View className="flex items-center justify-between mb-4">
-          <Text className="block text-base text-white font-bold">{title}</Text>
-          <Button variant="secondary" className="w-6 h-6 bg-gray-800 rounded-full flex items-center justify-center"
-            onClick={onClose}
-          >
-            <Text className="text-xs text-gray-400">✕</Text>
-          </Button>
-        </View>
-        {children}
+        <Text className={`block font-bold ${player.eliminated ? 'text-gray-600' : 'text-white'}`}
+          style={{ fontSize: '16px' }}
+        >{initials}</Text>
+
+        {/* Status icons around avatar */}
+        {player.hasGun && !player.eliminated && (
+          <View style={{ position: 'absolute', top: -6, right: -6 }}>
+            <Text className="block" style={{ fontSize: '14px' }}>🔫</Text>
+          </View>
+        )}
+        {player.equipment && !player.eliminated && (
+          <View style={{ position: 'absolute', bottom: -4, right: -8 }}>
+            <Text className="block" style={{ fontSize: '12px' }}
+              onClick={() => onShowEquipment(player)}
+            >🎒</Text>
+          </View>
+        )}
+        {player.wounded && !player.eliminated && (
+          <View style={{ position: 'absolute', top: -4, left: -6 }}>
+            <Text className="block" style={{ fontSize: '12px' }}>🩹</Text>
+          </View>
+        )}
       </View>
+
+      {/* Player name */}
+      <Text className={`block text-xs text-center truncate ${player.eliminated ? 'text-gray-500' : 'text-gray-300'}`}
+        style={{ maxWidth: '64px', fontSize: '11px', lineHeight: '14px' }}
+      >
+        {player.name}
+      </Text>
+
+      {/* Status */}
+      {player.eliminated && (
+        <Text className="block text-gray-600 text-xs">💀</Text>
+      )}
+
+      {/* Aiming indicator */}
+      {player.hasGun && player.aimingAt && targetName && !player.eliminated && (
+        <View style={{
+          backgroundColor: 'rgba(239,68,68,0.15)', borderRadius: 4,
+          padding: '1px 6px', marginTop: 1,
+        }}
+        >
+          <Text className="block text-red-400 text-xs" style={{ fontSize: '9px', lineHeight: '12px' }}>
+            → {targetName.slice(0, 3)}
+          </Text>
+        </View>
+      )}
+
+      {/* Current turn indicator */}
+      {isCurrent && (
+        <View style={{
+          width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e', marginTop: 1,
+        }}
+        />
+      )}
+    </View>
+  )
+}
+
+// Action Button Component
+function ActionBtn({ icon, label, desc, onClick, disabled }: {
+  icon: string; label: string; desc: string; onClick: () => void; disabled?: boolean;
+}) {
+  return (
+    <View style={{
+      flex: 1, backgroundColor: disabled ? '#1a1f2e' : '#1e3a5f',
+      borderRadius: 10, padding: '8px 4px',
+      borderWidth: 1, borderColor: disabled ? '#1f2937' : 'rgba(59,130,246,0.3)',
+      opacity: disabled ? 0.5 : 1,
+    }} onClick={disabled ? undefined : onClick}
+    >
+      <Text className={`block text-center ${disabled ? 'text-gray-600' : 'text-white'}`}
+        style={{ fontSize: '18px' }}
+      >{icon}</Text>
+      <Text className={`block text-center text-xs mt-1 ${disabled ? 'text-gray-600' : 'text-gray-300'}`}
+        style={{ fontSize: '11px', lineHeight: '14px' }}
+      >{label}</Text>
+      <Text className={`block text-center ${disabled ? 'text-gray-700' : 'text-gray-500'}`}
+        style={{ fontSize: '9px', lineHeight: '12px' }}
+      >{desc}</Text>
     </View>
   )
 }

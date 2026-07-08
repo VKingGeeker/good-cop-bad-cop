@@ -423,7 +423,6 @@ export class GameLogicService {
   }
 
   private handleEquip(state: GameState, payload: any): GameState {
-    const { flipCardIndex } = payload;
     const players = [...state.players];
     const player = { ...players[state.currentPlayerIndex] };
 
@@ -438,13 +437,6 @@ export class GameLogicService {
     }
     player.equipment = drawnCard;
 
-    // 翻开指定的底细牌
-    if (flipCardIndex !== undefined && flipCardIndex >= 0 && flipCardIndex < player.cards.length) {
-      player.cards = player.cards.map((c, i) =>
-        i === flipCardIndex ? { ...c, faceUp: true } : c
-      );
-    }
-
     players[state.currentPlayerIndex] = player;
     state.players = players;
     state.equipmentDeck = deck;
@@ -458,20 +450,13 @@ export class GameLogicService {
   }
 
   private handleGun(state: GameState, payload: any): GameState {
-    const { flipCardIndex, aimTargetId } = payload;
+    const { aimTargetId } = payload;
     if (state.gunCount <= 0) throw new Error('没有手枪可用');
 
     const players = [...state.players];
     const player = { ...players[state.currentPlayerIndex] };
 
     player.hasGun = true;
-
-    // 翻开指定的底细牌
-    if (flipCardIndex !== undefined && flipCardIndex >= 0 && flipCardIndex < player.cards.length) {
-      player.cards = player.cards.map((c, i) =>
-        i === flipCardIndex ? { ...c, faceUp: true } : c
-      );
-    }
 
     // 瞄准目标
     if (aimTargetId) {
