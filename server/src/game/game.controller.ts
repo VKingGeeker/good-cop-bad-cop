@@ -142,24 +142,24 @@ export class GameController {
     console.log(`[API] performAction: roomCode=${roomCode}, playerId=${body.playerId}, action=${body.action}`);
     try {
       // 构建payload
-      const payload: any = {};
+      const payload: any = body.payload || {};
       if (body.action === 'investigate') {
         payload.targetId = body.target;
-        payload.cardIndex = body.cardIndex;
+        if (payload.cardIndex === undefined) payload.cardIndex = body.cardIndex;
       } else if (body.action === 'equip') {
-        payload.flipCardIndex = body.cardIndex;
+        if (payload.flipCardIndex === undefined) payload.flipCardIndex = body.cardIndex;
       } else if (body.action === 'gun') {
-        payload.flipCardIndex = body.cardIndex;
         payload.aimTargetId = body.target;
+        if (payload.flipCardIndex === undefined) payload.flipCardIndex = body.cardIndex;
       } else if (body.action === 'shoot') {
         // 从瞄准目标射击
       } else if (body.action === 'aim') {
         payload.targetId = body.target;
       } else if (body.action === 'use_equipment') {
         payload.effect = body.equipment;
-        payload.data = { targetId: body.target, cardIndex: body.cardIndex };
+        payload.data = { targetId: body.target, cardIndex: payload.cardIndex ?? body.cardIndex };
       } else if (body.action === 'flip_card') {
-        payload.flipCardIndex = body.cardIndex;
+        if (payload.flipCardIndex === undefined) payload.flipCardIndex = body.cardIndex;
       }
 
       const gameState = await this.gameLogicService.performAction(

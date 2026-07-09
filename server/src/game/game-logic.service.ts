@@ -752,6 +752,7 @@ export class GameLogicService {
       return {
         id: p.id,
         name: p.name,
+        isBot: p.isBot,
         // 自己能看到自己的所有牌，别人只能看到已翻开的牌
         cards: isSelf
           ? p.cards
