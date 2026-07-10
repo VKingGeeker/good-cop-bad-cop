@@ -14,24 +14,6 @@ const EQUIPMENT_MAP: Record<string, string> = {
   'recon': '侦查令', 'flare': '信号弹', 'shield': '防弹盾', 'bribe': '贿赂',
 }
 
-const EQUIPMENT_INFO: Record<string, { name: string; desc: string }> = {
-  smoke: { name: '烟雾弹', desc: '游戏方向反转' },
-  injunction: { name: '禁制令', desc: '禁止1名玩家执行1种行动' },
-  coffee: { name: '咖啡', desc: '立即进行1个额外回合' },
-  blackmail: { name: '勒索信', desc: '与1名玩家交换1张底细牌' },
-  vest: { name: '防弹衣', desc: '取消1次射击伤害' },
-  medkit: { name: '急救包', desc: '移除首领受伤标记' },
-  scope: { name: '瞄准镜', desc: '查看自己1张底细牌' },
-  fakeIntel: { name: '假情报', desc: '将1张翻开的底细牌翻回' },
-  doubleShot: { name: '双倍射击', desc: '本回合可射击2次' },
-  snatch: { name: '抢夺', desc: '抢走1名玩家的手枪' },
-  swap: { name: '调换', desc: '与1名玩家交换装备' },
-  silence: { name: '沉默令', desc: '指定玩家下回合不能用装备' },
-  recon: { name: '侦查令', desc: '查看1名玩家所有底细牌' },
-  flare: { name: '信号弹', desc: '所有玩家翻开1张底细牌' },
-  barrier: { name: '防弹盾', desc: '免疫射击直到下回合' },
-  bribe: { name: '贿赂', desc: '偷取1名玩家的装备牌' },
-}
 
 interface PlayerState {
   id: string
@@ -42,7 +24,7 @@ interface PlayerState {
   wounded: boolean
   eliminated: boolean
   isBot: boolean
-  equipment: string | null
+  equipment: { id: string; name: string; iconName: string; description: string } | null
   cards: { type: string; faceUp: boolean }[]
   flippedCount: number
 }
@@ -72,7 +54,7 @@ export default function GamePage() {
   const [submitting, setSubmitting] = useState(false)
   const [investigateTarget, setInvestigateTarget] = useState<string | null>(null)
   const [investResult, setInvestResult] = useState<{ targetName: string; cardIndex: number; cardType: string } | null>(null)
-  const [equipDetail, setEquipDetail] = useState<string | null>(null)
+  const [equipDetail, setEquipDetail] = useState<any>(null)
 
   const isMyTurn = gameState?.currentPlayerDeviceId === playerId
   const myPlayer = gameState?.players.find(p => p.id === playerId)
@@ -221,20 +203,8 @@ export default function GamePage() {
 
   return (
     <View className="h-screen bg-gray-900 flex flex-col overflow-hidden" style={{ position: 'relative' }}>
-      {/* 瞄准线SVG */}
-      <View className="absolute inset-0 z-10 pointer-events-none">
-        <svg width="100%" height="100%" style={{ position: 'absolute', top: 0, left: 0 }}>
-          {gameState.players.map((p, i) => {
-            if (!p.alive || !p.aimingAt) return null
-            const target = gameState.players.findIndex(t => t.id === p.aimingAt)
-            if (target < 0) return null
-            const pos = getPlayerPosition(i, totalPlayers)
-            const targetPos = getPlayerPosition(target, totalPlayers)
-            // 玩家和瞄准方向 - 简化为箭头图标
-            return null
-          })}
-        </svg>
-      </View>
+      {/* 瞄准线区域 */}
+      <View className="absolute inset-0 z-10 pointer-events-none"></View>
 
       {/* 顶部状态栏 */}
       <View className="flex items-center justify-between px-4 py-2 bg-gray-800 z-20">
@@ -361,17 +331,17 @@ export default function GamePage() {
                 <View className="mt-3 bg-gray-800 rounded-xl p-3">
                   <View className="flex items-center justify-between">
                     <Text className="block text-gray-300 text-sm">
-                      🎒 {EQUIPMENT_MAP[myPlayer.equipment] || myPlayer.equipment}
+                      🎒 {myPlayer.equipment?.name || '未知装备'}
                     </Text>
                     <Button
                       className="bg-blue-600 text-white text-xs px-3 py-1"
-                      onClick={() => handleUseEquipment(myPlayer.equipment!)}
+                      onClick={() => handleUseEquipment(myPlayer.equipment?.name || '')}
                     >
                       使用
                     </Button>
                   </View>
                   <Text className="block text-gray-500 text-xs mt-1">
-                    {EQUIPMENT_INFO[myPlayer.equipment]?.desc || ''}
+                    {myPlayer.equipment?.description || ''}
                   </Text>
                 </View>
               )}
@@ -507,8 +477,8 @@ export default function GamePage() {
           </DialogHeader>
           {equipDetail && (
             <View className="p-4 text-center">
-              <Text className="block text-2xl mb-2">{EQUIPMENT_MAP[equipDetail] || equipDetail}</Text>
-              <Text className="block text-gray-400">{EQUIPMENT_INFO[equipDetail]?.desc || ''}</Text>
+              <Text className="block text-2xl mb-2">{EQUIPMENT_MAP[equipDetail.iconName] || equipDetail.name}</Text>
+              <Text className="block text-gray-400">{equipDetail.description || ''}</Text>
             </View>
           )}
         </DialogContent>
@@ -549,7 +519,6 @@ function PlayerAvatar({
   onInvestigate,
   onShoot,
   onAim,
-  onEquipUse,
   onShowEquip,
 }: {
   player: PlayerState
