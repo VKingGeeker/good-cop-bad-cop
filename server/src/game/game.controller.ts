@@ -155,8 +155,8 @@ export class GameController {
         // 从瞄准目标射击
       } else if (body.action === 'aim') {
         payload.targetId = body.target;
-      } else if (body.action === 'use_equipment') {
-        payload.effect = body.equipment;
+      } else if (body.action === 'use_equipment' || body.action === 'useEquipment') {
+        payload.effect = body.payload?.equipment || body.equipment;
         payload.data = { targetId: body.target, cardIndex: payload.cardIndex ?? body.cardIndex };
       } else if (body.action === 'flip_card') {
         if (payload.flipCardIndex === undefined) payload.flipCardIndex = body.cardIndex;
@@ -192,14 +192,6 @@ export class GameController {
           title: '💥 射击！',
           msg: `发生了射击事件！${eliminated.length > 0 ? `${eliminated.map((p: any) => p.name).join(', ')} 被淘汰！` : ''}`,
         };
-      }
-
-      // 自动结束回合（除了equip使用后需要翻牌的情况）
-      if (!['use_equipment', 'endTurn'].includes(body.action) && body.action !== 'aim') {
-        // 如果是调查/装备/手枪/射击，自动推进到下一回合
-        if (['investigate', 'equip', 'gun', 'shoot', 'flip_card'].includes(body.action)) {
-          await this.gameLogicService.performAction(roomCode, body.playerId, 'endTurn', {});
-        }
       }
 
       return response;

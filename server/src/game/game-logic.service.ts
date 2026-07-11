@@ -355,7 +355,7 @@ export class GameLogicService {
 
     // 如果有装备未使用，随机使用
     if (player.equipment && !player.silenced) {
-      actions.push({ type: 'useEquipment', payload: { effect: player.equipment.name, data: {} } });
+      actions.push({ type: 'useEquipment', payload: { effect: player.equipment.iconName, data: {} } });
     }
 
     // 调查行动

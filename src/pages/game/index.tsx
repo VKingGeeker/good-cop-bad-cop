@@ -211,6 +211,7 @@ export default function GamePage() {
             isCurrent={isMyTurn && gameState.currentPlayerIndex === i}
             isMyTurn={isMyTurn}
             isSelf={p.id === playerId}
+            aimingAtName={p.aimingAt ? (gameState.players.find(tp => tp.id === p.aimingAt)?.name || '') : ''}
             onInvestigate={() => handleInvestigateSelect(p.id)}
             onShoot={() => submitAction('shoot', p.id)}
             onAim={() => submitAction('aim', p.id)}
@@ -305,7 +306,7 @@ export default function GamePage() {
                   </Text>
                   <Button
                     className="bg-blue-600 text-white text-xs px-3 py-1"
-                    onClick={() => handleUseEquipment(myPlayer.equipment?.name || '')}
+                    onClick={() => handleUseEquipment(myPlayer.equipment?.iconName || '')}
                   >
                     使用
                   </Button>
@@ -444,7 +445,7 @@ export default function GamePage() {
                 className="w-full bg-gray-700 text-gray-200"
                 onClick={() => {
                   const equip = myPlayer?.equipment
-                  if (equip) submitAction('useEquipment', p.id, { equipment: equip })
+                  if (equip) submitAction('useEquipment', p.id, { equipment: equip.iconName })
                 }}
               >
                 🎯 {p.name}
@@ -463,6 +464,7 @@ function PlayerAvatar({
   isCurrent,
   isMyTurn,
   isSelf,
+  aimingAtName,
   onInvestigate,
   onShoot,
   onAim,
@@ -472,6 +474,7 @@ function PlayerAvatar({
   isCurrent: boolean
   isMyTurn: boolean
   isSelf: boolean
+  aimingAtName?: string
   onInvestigate: () => void
   onShoot: () => void
   onAim: () => void
@@ -533,7 +536,7 @@ function PlayerAvatar({
       {/* 瞄准指示 */}
       <View className="flex items-center gap-1 mt-1">
         {player.aimingAt && (
-          <Text className="block text-red-400 text-xs">→ {player.aimingAt.slice(0, 4)}</Text>
+          <Text className="block text-red-400 text-xs">→ {aimingAtName || player.aimingAt.slice(0, 4)}</Text>
         )}
       </View>
 
