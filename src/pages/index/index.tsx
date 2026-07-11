@@ -40,6 +40,7 @@ const IndexPage = () => {
       const result = res.data as any
       if (result.code === 0) {
         Taro.setStorageSync('playerId', result.data.playerId)
+        Taro.setStorageSync('isHost', 'true')
         Taro.redirectTo({ url: `/pages/room/index?roomCode=${result.data.roomCode}` })
       } else {
         setError(result.msg || '创建失败')
@@ -68,6 +69,7 @@ const IndexPage = () => {
       const result = res.data as any
       if (result.code === 0) {
         Taro.setStorageSync('playerId', result.data.playerId)
+        Taro.setStorageSync('isHost', 'false')
         Taro.redirectTo({ url: `/pages/room/index?roomCode=${roomCode.trim()}` })
       } else {
         setError(result.msg || '加入失败')
