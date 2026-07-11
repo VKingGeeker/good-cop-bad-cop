@@ -167,29 +167,6 @@ export default function GamePage() {
     return '#9ca3af'
   }
 
-  // 计算玩家位置
-  const getPlayerPosition = (index: number, total: number) => {
-    if (total <= 3) {
-      // 上3下0
-      if (index === 0) return { row: 'top', col: 0 }
-      if (index === 1) return { row: 'top', col: 1 }
-      return { row: 'top', col: 2 }
-    }
-    if (total === 4) {
-      // 上2下2
-      if (index < 2) return { row: 'top', col: index }
-      return { row: 'bottom', col: index - 2 }
-    }
-    if (total <= 6) {
-      // 上3下3
-      if (index < 3) return { row: 'top', col: index }
-      return { row: 'bottom', col: index - 3 }
-    }
-    // 7-8人: 上4下4
-    if (index < 4) return { row: 'top', col: index }
-    return { row: 'bottom', col: index - 4 }
-  }
-
   if (!gameState) {
     return (
       <View className="flex items-center justify-center h-screen bg-gray-900">
@@ -199,7 +176,6 @@ export default function GamePage() {
   }
 
   const alivePlayers = gameState.players.filter(p => p.alive)
-  const totalPlayers = gameState.players.length
 
   return (
     <View className="h-screen bg-gray-900 flex flex-col overflow-hidden" style={{ position: 'relative' }}>
@@ -226,150 +202,121 @@ export default function GamePage() {
         </View>
       </View>
 
-      {/* 玩家区域 - 上部分 */}
-      <View className="flex-1 flex flex-col">
-        {/* 上排玩家 */}
-        <View className="flex justify-around items-start px-2 pt-2" style={{ minHeight: '35%' }}>
-          {gameState.players.map((p, i) => {
-            const pos = getPlayerPosition(i, totalPlayers)
-            if (pos.row !== 'top') return null
-            return (
-              <PlayerAvatar
-                key={p.id}
-                player={p}
-                isCurrent={isMyTurn && gameState.currentPlayerIndex === i}
-                isMyTurn={isMyTurn}
-                isSelf={p.id === playerId}
-                onInvestigate={() => handleInvestigateSelect(p.id)}
-                onShoot={() => submitAction('shoot', p.id)}
-                onAim={() => submitAction('aim', p.id)}
-                onEquipUse={() => handleUseEquipment(p.id)}
-                onShowEquip={() => setEquipDetail(p.equipment)}
-              />
-            )
-          })}
-        </View>
+      {/* 玩家区域 - 顶部单行 */}
+      <View className="flex justify-around items-start px-2 pt-2 overflow-x-auto" style={{ minHeight: '80px' }}>
+        {gameState.players.map((p, i) => (
+          <PlayerAvatar
+            key={p.id}
+            player={p}
+            isCurrent={isMyTurn && gameState.currentPlayerIndex === i}
+            isMyTurn={isMyTurn}
+            isSelf={p.id === playerId}
+            onInvestigate={() => handleInvestigateSelect(p.id)}
+            onShoot={() => submitAction('shoot', p.id)}
+            onAim={() => submitAction('aim', p.id)}
+            onEquipUse={() => handleUseEquipment(p.id)}
+            onShowEquip={() => setEquipDetail(p.equipment)}
+          />
+        ))}
+      </View>
 
-        {/* 中央区域 - 行动提示 */}
-        <View className="flex-1 flex items-center justify-center px-4">
-          {!isMyTurn ? (
-            <View className="text-center">
-              <Text className="block text-gray-400 text-lg">
-                {currentPlayer?.isBot ? '🤖' : '👤'} {currentPlayer?.name || '未知'} 行动中...
-              </Text>
-              <Text className="block text-gray-500 text-sm mt-2">请稍候</Text>
-            </View>
-          ) : (
-            <View className="w-full max-w-md">
-              {/* 身份显示 - 始终可见 */}
-              <View className="bg-gray-800 rounded-xl p-3 mb-4">
-                <View className="flex items-center gap-2 mb-2">
-                  <Text className="block text-gray-400 text-xs">你的身份</Text>
-                  <Text className="block text-xs px-2 py-1 rounded-full" style={{
-                    backgroundColor: `${getIdentityColor()}22`,
-                    color: getIdentityColor(),
-                    border: `1px solid ${getIdentityColor()}44`,
-                  }}
-                  >
-                    {getIdentityText()}
-                  </Text>
-                </View>
-                <View className="flex gap-2">
-                  {myPlayer?.cards.map((card, ci) => (
-                    <View
-                      key={ci}
-                      className="flex-1 rounded-lg p-2 text-center"
-                      style={{
-                        backgroundColor: card.faceUp ? `${formatCardColor(card.type)}33` : '#374151',
-                        border: `1px solid ${card.faceUp ? formatCardColor(card.type) : '#4b5563'}`,
-                      }}
-                    >
-                      <Text className="block text-xs" style={{
-                        color: card.faceUp ? formatCardColor(card.type) : '#9ca3af',
-                      }}
-                      >
-                        {card.faceUp ? formatCardType(card.type) : `底细${ci + 1}`}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
+      {/* 中央区域 - 行动提示（可滚动） */}
+      <View className="flex-1 flex items-center justify-center px-4 overflow-y-auto">
+        {!isMyTurn ? (
+          <View className="text-center">
+            <Text className="block text-gray-400 text-lg">
+              {currentPlayer?.isBot ? '🤖' : '👤'} {currentPlayer?.name || '未知'} 行动中...
+            </Text>
+            <Text className="block text-gray-500 text-sm mt-2">请稍候</Text>
+          </View>
+        ) : (
+          <View className="w-full max-w-md">
+            {/* 身份显示 - 始终可见 */}
+            <View className="bg-gray-800 rounded-xl p-3 mb-4">
+              <View className="flex items-center gap-2 mb-2">
+                <Text className="block text-gray-400 text-xs">你的身份</Text>
+                <Text className="block text-xs px-2 py-1 rounded-full" style={{
+                  backgroundColor: `${getIdentityColor()}22`,
+                  color: getIdentityColor(),
+                  border: `1px solid ${getIdentityColor()}44`,
+                }}
+                >
+                  {getIdentityText()}
+                </Text>
               </View>
+              <View className="flex gap-2">
+                {myPlayer?.cards.map((card, ci) => (
+                  <View
+                    key={ci}
+                    className="flex-1 rounded-lg p-2 text-center"
+                    style={{
+                      backgroundColor: card.faceUp ? `${formatCardColor(card.type)}33` : '#374151',
+                      border: `1px solid ${card.faceUp ? formatCardColor(card.type) : '#4b5563'}`,
+                    }}
+                  >
+                    <Text className="block text-xs" style={{
+                      color: card.faceUp ? formatCardColor(card.type) : '#9ca3af',
+                    }}
+                    >
+                      {card.faceUp ? formatCardType(card.type) : `底细${ci + 1}`}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
 
-              {/* 调查结果 */}
-              {investResult && (
-                <View className="bg-gray-800 rounded-xl p-3 mb-4">
-                  <Text className="block text-gray-400 text-xs mb-2">调查结果</Text>
-                  <Text className="block text-lg" style={{ color: formatCardColor(investResult.cardType) }}>
-                    {investResult.targetName} 的第{investResult.cardIndex + 1}张底细牌是：
-                    <Text className="font-bold">{formatCardType(investResult.cardType)}</Text>
+            {/* 调查结果 */}
+            {investResult && (
+              <View className="bg-gray-800 rounded-xl p-3 mb-4">
+                <Text className="block text-gray-400 text-xs mb-2">调查结果</Text>
+                <Text className="block text-lg" style={{ color: formatCardColor(investResult.cardType) }}>
+                  {investResult.targetName} 的第{investResult.cardIndex + 1}张底细牌是：
+                  <Text className="font-bold">{formatCardType(investResult.cardType)}</Text>
+                </Text>
+                <Button
+                  className="mt-2 w-full bg-gray-700 text-gray-300 text-xs"
+                  onClick={() => setInvestResult(null)}
+                >
+                  关闭
+                </Button>
+              </View>
+            )}
+
+            {/* 行动按钮 */}
+            <View className="grid grid-cols-2 gap-3">
+              <ActionBtn icon={<Eye size={18} color="#60a5fa" />} label="调查" onClick={() => setActionModal('investigate')} />
+              <ActionBtn icon={<Package size={18} color="#34d399" />} label="取得装备" onClick={() => submitAction('equip')} />
+              {myPlayer?.hasGun ? (
+                <ActionBtn icon={<Crosshair size={18} color="#f87171" />} label="射击" onClick={() => setActionModal('shoot')} />
+              ) : gameState.gunCount > 0 ? (
+                <ActionBtn icon={<Swords size={18} color="#fbbf24" />} label="装备手枪" onClick={() => setActionModal('aim')} />
+              ) : null}
+              {myPlayer?.hasGun && (
+                <ActionBtn icon={<Target size={18} color="#f472b6" />} label="瞄准" onClick={() => setActionModal('aim')} />
+              )}
+            </View>
+
+            {/* 装备牌 */}
+            {myPlayer?.equipment && (
+              <View className="mt-3 bg-gray-800 rounded-xl p-3">
+                <View className="flex items-center justify-between">
+                  <Text className="block text-gray-300 text-sm">
+                    🎒 {myPlayer.equipment?.name || '未知装备'}
                   </Text>
                   <Button
-                    className="mt-2 w-full bg-gray-700 text-gray-300 text-xs"
-                    onClick={() => setInvestResult(null)}
+                    className="bg-blue-600 text-white text-xs px-3 py-1"
+                    onClick={() => handleUseEquipment(myPlayer.equipment?.name || '')}
                   >
-                    关闭
+                    使用
                   </Button>
                 </View>
-              )}
-
-              {/* 行动按钮 */}
-              <View className="grid grid-cols-2 gap-3">
-                <ActionBtn icon={<Eye size={18} color="#60a5fa" />} label="调查" onClick={() => setActionModal('investigate')} />
-                <ActionBtn icon={<Package size={18} color="#34d399" />} label="取得装备" onClick={() => submitAction('equip')} />
-                {myPlayer?.hasGun ? (
-                  <ActionBtn icon={<Crosshair size={18} color="#f87171" />} label="射击" onClick={() => setActionModal('shoot')} />
-                ) : gameState.gunCount > 0 ? (
-                  <ActionBtn icon={<Swords size={18} color="#fbbf24" />} label="装备手枪" onClick={() => setActionModal('aim')} />
-                ) : null}
-                {myPlayer?.hasGun && (
-                  <ActionBtn icon={<Target size={18} color="#f472b6" />} label="瞄准" onClick={() => setActionModal('aim')} />
-                )}
+                <Text className="block text-gray-500 text-xs mt-1">
+                  {myPlayer.equipment?.description || ''}
+                </Text>
               </View>
-
-              {/* 装备牌 */}
-              {myPlayer?.equipment && (
-                <View className="mt-3 bg-gray-800 rounded-xl p-3">
-                  <View className="flex items-center justify-between">
-                    <Text className="block text-gray-300 text-sm">
-                      🎒 {myPlayer.equipment?.name || '未知装备'}
-                    </Text>
-                    <Button
-                      className="bg-blue-600 text-white text-xs px-3 py-1"
-                      onClick={() => handleUseEquipment(myPlayer.equipment?.name || '')}
-                    >
-                      使用
-                    </Button>
-                  </View>
-                  <Text className="block text-gray-500 text-xs mt-1">
-                    {myPlayer.equipment?.description || ''}
-                  </Text>
-                </View>
-              )}
-            </View>
-          )}
-        </View>
-
-        {/* 下排玩家 */}
-        <View className="flex justify-around items-end px-2 pb-2" style={{ minHeight: '30%' }}>
-          {gameState.players.map((p, i) => {
-            const pos = getPlayerPosition(i, totalPlayers)
-            if (pos.row !== 'bottom') return null
-            return (
-              <PlayerAvatar
-                key={p.id}
-                player={p}
-                isCurrent={isMyTurn && gameState.currentPlayerIndex === i}
-                isMyTurn={isMyTurn}
-                isSelf={p.id === playerId}
-                onInvestigate={() => handleInvestigateSelect(p.id)}
-                onShoot={() => submitAction('shoot', p.id)}
-                onAim={() => submitAction('aim', p.id)}
-                onEquipUse={() => handleUseEquipment(p.id)}
-                onShowEquip={() => setEquipDetail(p.equipment)}
-              />
-            )
-          })}
-        </View>
+            )}
+          </View>
+        )}
       </View>
 
       {/* 游戏日志 - 底部滚动条 */}
