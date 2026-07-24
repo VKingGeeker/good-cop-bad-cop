@@ -56,7 +56,24 @@ const IndexPage = () => {
     const savedRoom = Taro.getStorageSync('roomCode') || ''
     const savedPlayer = Taro.getStorageSync('playerId') || ''
     if (savedRoom && savedPlayer) {
-      setLastRoom(savedRoom)
+      // 验证房间是否仍然存在
+      Network.request({ url: `/api/game/room/${savedRoom}` })
+        .then((res) => {
+          const result = res.data as any
+          if (result.code === 0 && result.data) {
+            setLastRoom(savedRoom)
+          } else {
+            // 房间已不存在，清除本地记录
+            Taro.removeStorageSync('roomCode')
+            Taro.removeStorageSync('playerId')
+            Taro.removeStorageSync('isHost')
+          }
+        })
+        .catch(() => {
+          Taro.removeStorageSync('roomCode')
+          Taro.removeStorageSync('playerId')
+          Taro.removeStorageSync('isHost')
+        })
     }
   }, [])
 
