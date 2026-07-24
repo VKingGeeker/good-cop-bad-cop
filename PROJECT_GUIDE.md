@@ -68,6 +68,12 @@
 - [x] 检查更新（`GET /api/app/version` + `GET /api/app/download`）
 - [x] 版本号显示在首页
 - [x] Android 明文流量配置（`network_security_config.xml`）
+- [x] 游戏内更新弹窗（进度条 + 安装/取消按钮）
+- [x] 中文更新日志展示（条目间换行分隔）
+- [x] APK 断点续传下载（HTTP Range 请求，取消后保存进度）
+- [x] 下载状态持久化（进度百分比、完成状态保存到 localStorage）
+- [x] 安装按钮状态控制（未达 100% 置灰，完成后可用）
+- [x] 游戏页顶部栏更新检查入口
 
 ## 四、API 接口一览
 
@@ -100,8 +106,10 @@
 | `src/pages/game/index.tsx` | 游戏页：游戏交互、TRTC 语音 |
 | `src/pages/result/index.tsx` | 结果页：胜负展示 |
 | `src/hooks/use-trtc.ts` | TRTC 语音 Hook |
+| `src/hooks/use-app-update.ts` | APP 更新管理 Hook（下载、断点续传、状态持久化） |
 | `src/network.ts` | 网络请求封装 |
 | `src/config/app-version.ts` | APP 版本号（每次打包前更新） |
+| `src/components/update/update-dialog.tsx` | 更新弹窗组件（进度条、安装/取消按钮） |
 | `capacitor.config.ts` | Capacitor 配置（appName: 无间疑云） |
 
 ### 后端
@@ -109,7 +117,7 @@
 |------|------|
 | `server/src/main.ts` | 入口：CORS、全局前缀 `/api`、定时清理房间 |
 | `server/src/app.module.ts` | 模块注册 |
-| `server/src/app-update.controller.ts` | 版本检查 + APK 下载 |
+| `server/src/app-update.controller.ts` | 版本检查 + APK 下载（支持 Range 断点续传） |
 | `server/src/game/game.controller.ts` | 游戏房间 API |
 | `server/src/game/game-room.service.ts` | 房间逻辑：创建/加入/离开/踢人/列表/清理 |
 | `server/src/game/game-logic.service.ts` | 游戏核心逻辑 |
@@ -153,8 +161,8 @@ Copy-Item -Path "dist-web\*" -Destination "android\app\src\main\assets\public\" 
 # 同步 Capacitor 配置
 $env:JAVA_HOME="C:\Program Files\Java\jdk-21.0.2"; npx cap sync android
 
-# 构建 APK
-cd android; .\gradlew assembleDebug
+# 构建 APK（国内需使用阿里云镜像加速）
+cd android; .\gradlew assembleDebug --init-script init-mirror.gradle
 ```
 
 APK 输出: `android/app/build/outputs/apk/debug/app-debug.apk`
@@ -187,6 +195,8 @@ $env:PROJECT_DOMAIN="http://82.157.199.141:3000"; pnpm dev:web
 4. **H5 跨端兼容**: 垂直 Text 加 `block` 类；Input/Textarea 用 View 包裹；Fixed+Flex 用 inline style
 5. **APK 明文流量**: Android 9+ 默认禁止 HTTP，已通过 `network_security_config.xml` 配置允许
 6. **pnpm 必须**: 禁止使用 npm 或 yarn
+7. **Gradle 国内镜像**: APK 构建时需加 `--init-script init-mirror.gradle` 使用阿里云镜像，否则 Maven Central 会超时
+8. **lucide-react-taro 图标名**: 图标命名与 Lucide 官方一致（PascalCase），但部分旧名不可用（如 `CheckCircle` → `CircleCheck`，`AlertCircle` → `CircleAlert`）
 
 ## 八、后续可展开的工作
 

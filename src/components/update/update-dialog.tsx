@@ -3,7 +3,7 @@ import { View, Text } from '@tarojs/components'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { Download, Package, CheckCircle, AlertCircle } from 'lucide-react-taro'
+import { Download, Package, CircleCheck, CircleAlert } from 'lucide-react-taro'
 import { APP_VERSION } from '@/config/app-version'
 import type { UpdateInfo, DownloadStatus } from '@/hooks/use-app-update'
 
@@ -148,13 +148,13 @@ export function UpdateDialog({
               )}
               {isCompleted && (
                 <View className="flex items-center gap-1">
-                  <CheckCircle size={12} color="#22c55e" />
+                  <CircleCheck size={12} color="#22c55e" />
                   <Text className="block text-xs text-green-400">下载完成，可以安装</Text>
                 </View>
               )}
               {isError && (
                 <View className="flex items-center gap-1">
-                  <AlertCircle size={12} color="#ef4444" />
+                  <CircleAlert size={12} color="#ef4444" />
                   <Text className="block text-xs text-red-400">下载失败，请重试</Text>
                 </View>
               )}
