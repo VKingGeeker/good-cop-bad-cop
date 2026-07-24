@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel } from '@/components/ui/alert-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Crosshair, Target, Shield, Swords, Eye, Package, ChevronRight, Backpack, SkipForward, Copy, Download } from 'lucide-react-taro'
+import { Crosshair, Target, Shield, Swords, Eye, Package, ChevronRight, Backpack, SkipForward, Copy, Download, Menu } from 'lucide-react-taro'
 import { useTRTC } from '@/hooks/use-trtc'
 import { useAppUpdate } from '@/hooks/use-app-update'
 import { UpdateDialog } from '@/components/update/update-dialog'
@@ -83,6 +83,8 @@ export default function GamePage() {
   const [investigateTarget, setInvestigateTarget] = useState<string | null>(null)
   const [investResult, setInvestResult] = useState<{ targetName: string; cardIndex: number; cardType: string } | null>(null)
   const [equipDetail, setEquipDetail] = useState<any>(null)
+  const [showExitMenu, setShowExitMenu] = useState(false)
+  const [showExitConfirm, setShowExitConfirm] = useState(false)
   const fetchingRef = useRef(false)
   const dismissedInvestRef = useRef<string | null>(null)
   const [linePositions, setLinePositions] = useState<{
@@ -352,7 +354,7 @@ export default function GamePage() {
 
   if (!gameState) {
     return (
-      <View className="flex flex-col h-screen bg-[#0a0e1a] overflow-hidden p-4">
+      <View className="flex flex-col h-screen bg-[#0a0e1a] overflow-hidden p-4" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
         {/* 头像行骨架 */}
         <View className="grid grid-cols-4 gap-3 mb-4">
           {Array.from({ length: 8 }).map((_, i) => (
@@ -378,7 +380,7 @@ export default function GamePage() {
   const alivePlayers = gameState.players.filter(p => !p.eliminated)
 
   return (
-    <View className="h-screen bg-[#0a0e1a] flex flex-col overflow-hidden" style={{ position: 'relative' }}>
+    <View className="h-screen bg-[#0a0e1a] flex flex-col overflow-hidden" style={{ position: 'relative', paddingTop: 'env(safe-area-inset-top, 0px)' }}>
       {/* 顶部状态栏 */}
       <View className="flex items-center justify-between px-4 py-2 z-20" style={{
         background: 'linear-gradient(180deg, #1f2937 0%, #111827 100%)',
@@ -405,6 +407,19 @@ export default function GamePage() {
                 {currentPlayer?.name}行动中
               </Text>
             )}
+          </View>
+          {/* 菜单按钮 */}
+          <View
+            className="flex items-center justify-center rounded-full"
+            style={{
+              width: '28px',
+              height: '28px',
+              backgroundColor: '#1f2937',
+              border: '1px solid #374151',
+            }}
+            onClick={() => setShowExitConfirm(true)}
+          >
+            <Menu size={14} color="#9ca3af" />
           </View>
           {/* 检查更新按钮 */}
           <View
@@ -801,6 +816,26 @@ export default function GamePage() {
         onInstall={installApk}
         onClose={closeDialog}
       />
+
+      {/* 退出确认弹窗 */}
+      <AlertDialog open={showExitConfirm} onOpenChange={setShowExitConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>退出游戏</AlertDialogTitle>
+            <AlertDialogDescription>
+              <Text className="block text-sm text-muted-foreground">确定要退出当前游戏返回主页吗？退出后游戏将继续进行，你可以重新加入。</Text>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => Taro.redirectTo({ url: '/pages/index/index' })}>
+              <Text className="block">退出到主页</Text>
+            </AlertDialogAction>
+            <AlertDialogCancel>
+              <Text className="block">取消</Text>
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 悬浮日志按钮 */}
       <FloatingLogButton />

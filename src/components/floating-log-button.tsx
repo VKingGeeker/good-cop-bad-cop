@@ -88,11 +88,17 @@ export const FloatingLogButton = () => {
   }, [])
 
   // 指针抬起：结束拖动，如果未移动则视为点击
-  const onPointerUp = useCallback(() => {
+  const onPointerUp = useCallback((e: any) => {
     if (!dragRef.current.dragging) return
     dragRef.current.dragging = false
     if (!dragRef.current.moved) {
-      setShowDialog(true)
+      // 阻止事件传播，避免 pointer 释放后触发 click 关闭刚打开的弹窗
+      if (e) {
+        e.stopPropagation?.()
+        e.preventDefault?.()
+      }
+      // 延迟打开弹窗，确保当前事件循环完成
+      setTimeout(() => setShowDialog(true), 50)
     }
   }, [])
 
