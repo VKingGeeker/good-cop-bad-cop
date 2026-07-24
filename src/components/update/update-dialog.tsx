@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { View, Text } from '@tarojs/components'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -22,16 +21,17 @@ interface UpdateDialogProps {
 /**
  * 更新下载弹窗组件
  *
- * 功能：
- * - 显示版本信息和中文更新日志（换行分隔）
- * - 实时下载进度条（精确到百分比）
- * - 安装按钮（进度达 100% 时可用，否则置灰）
- * - 取消按钮（中断下载并保存进度）
+ * 交互流程：
+ * - 检测到新版本 → 显示更新信息 + "更新"按钮（不自动下载）
+ * - 点击"更新" → 开始下载，按钮置灰显示进度
+ * - 下载完成 → 按钮切换为"安装"，可点击
+ * - 点击"安装" → 开始安装，按钮置灰显示"安装中..."
  *
- * 按钮状态控制：
- * - 进度 < 100%：安装按钮禁用（置灰），取消按钮可用
- * - 进度 = 100%：安装按钮可用，取消按钮置灰
- * - 下载完成关闭后重开：进度条显示 100%，安装按钮可用
+ * 按钮状态：
+ * - idle/paused → "更新" / "继续"（可点击）
+ * - downloading → "下载中 XX%"（置灰）
+ * - completed → "安装"（可点击）
+ * - installing → "安装中..."（置灰）
  */
 export function UpdateDialog({
   open,
@@ -44,16 +44,11 @@ export function UpdateDialog({
   onInstall,
   onClose,
 }: UpdateDialogProps) {
-  // 弹窗打开时自动开始/恢复下载（未完成时）
-  useEffect(() => {
-    if (open && updateInfo && status !== 'completed' && status !== 'downloading') {
-      onStartDownload()
-    }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const isCompleted = status === 'completed' || progress >= 100
   const isDownloading = status === 'downloading'
   const isError = status === 'error'
+  const isPaused = status === 'paused'
+  const isIdle = status === 'idle'
 
   /** 处理弹窗关闭 */
   const handleClose = () => {
@@ -61,7 +56,7 @@ export function UpdateDialog({
     onOpenChange(false)
   }
 
-  /** 渲染更新日志（按换行符分隔） */
+  /** 渲染更新日志（按换行符分隔，带序号） */
   const renderChangelog = (changelog: string) => {
     const lines = changelog.split('\n').filter((line) => line.trim())
     if (lines.length === 0) return null
@@ -74,11 +69,82 @@ export function UpdateDialog({
         <View className="flex flex-col gap-1">
           {lines.map((line, i) => (
             <Text key={i} className="block text-sm text-gray-200">
-              {line}
+              {i + 1}. {line}
             </Text>
           ))}
         </View>
       </View>
+    )
+  }
+
+  /** 主按钮：根据状态动态切换 */
+  const renderActionButton = () => {
+    // 安装中
+    if (installing) {
+      return (
+        <Button className="flex-1" style={{ backgroundColor: '#374151' }} disabled>
+          <Text className="block text-sm text-gray-400">安装中...</Text>
+        </Button>
+      )
+    }
+
+    // 下载中：置灰显示进度
+    if (isDownloading) {
+      return (
+        <Button className="flex-1" style={{ backgroundColor: '#374151' }} disabled>
+          <Text className="block text-sm text-gray-400">下载中 {progress}%</Text>
+        </Button>
+      )
+    }
+
+    // 下载完成：显示"安装"按钮
+    if (isCompleted) {
+      return (
+        <Button
+          className="flex-1"
+          style={{ backgroundColor: '#2563eb' }}
+          onClick={onInstall}
+        >
+          <Text className="block text-sm text-white">安装</Text>
+        </Button>
+      )
+    }
+
+    // 暂停：显示"继续"按钮
+    if (isPaused) {
+      return (
+        <Button
+          className="flex-1"
+          style={{ backgroundColor: '#2563eb' }}
+          onClick={onStartDownload}
+        >
+          <Text className="block text-sm text-white">继续</Text>
+        </Button>
+      )
+    }
+
+    // 错误：显示"重试"按钮
+    if (isError) {
+      return (
+        <Button
+          className="flex-1"
+          style={{ backgroundColor: '#d97706' }}
+          onClick={onStartDownload}
+        >
+          <Text className="block text-sm text-white">重试</Text>
+        </Button>
+      )
+    }
+
+    // 空闲：显示"更新"按钮
+    return (
+      <Button
+        className="flex-1"
+        style={{ backgroundColor: '#2563eb' }}
+        onClick={onStartDownload}
+      >
+        <Text className="block text-sm text-white">更新</Text>
+      </Button>
     )
   }
 
@@ -119,51 +185,53 @@ export function UpdateDialog({
             </View>
           )}
 
-          {/* 更新日志（中文，换行分隔） */}
+          {/* 更新日志（中文，换行分隔，带序号） */}
           {updateInfo?.changelog && renderChangelog(updateInfo.changelog)}
 
-          {/* 下载进度区 */}
-          <View className="mt-2">
-            <View className="flex flex-row items-center justify-between mb-2">
-              <Text className="block text-xs text-gray-400">下载进度</Text>
-              <Text
-                className="block text-xs font-bold"
-                style={{ color: isCompleted ? '#22c55e' : '#3b82f6' }}
-              >
-                {progress}%
-              </Text>
-            </View>
-            <Progress
-              value={progress}
-              className="h-2"
-              style={{ backgroundColor: '#2a2f3e' }}
-            />
-            {/* 状态提示 */}
+          {/* 下载进度区（仅在下载中/已完成/错误时显示） */}
+          {(isDownloading || isCompleted || isPaused || isError) && (
             <View className="mt-2">
-              {isDownloading && (
-                <Text className="block text-xs text-blue-400">正在下载...</Text>
-              )}
-              {status === 'paused' && (
-                <Text className="block text-xs text-amber-400">下载已暂停，将继续上次进度</Text>
-              )}
-              {isCompleted && (
-                <View className="flex items-center gap-1">
-                  <CircleCheck size={12} color="#22c55e" />
-                  <Text className="block text-xs text-green-400">下载完成，可以安装</Text>
-                </View>
-              )}
-              {isError && (
-                <View className="flex items-center gap-1">
-                  <CircleAlert size={12} color="#ef4444" />
-                  <Text className="block text-xs text-red-400">下载失败，请重试</Text>
-                </View>
-              )}
+              <View className="flex flex-row items-center justify-between mb-2">
+                <Text className="block text-xs text-gray-400">下载进度</Text>
+                <Text
+                  className="block text-xs font-bold"
+                  style={{ color: isCompleted ? '#22c55e' : '#3b82f6' }}
+                >
+                  {progress}%
+                </Text>
+              </View>
+              <Progress
+                value={progress}
+                className="h-2"
+                style={{ backgroundColor: '#2a2f3e' }}
+              />
+              {/* 状态提示 */}
+              <View className="mt-2">
+                {isDownloading && (
+                  <Text className="block text-xs text-blue-400">正在下载...</Text>
+                )}
+                {isPaused && (
+                  <Text className="block text-xs text-amber-400">下载已暂停，点击继续从上次进度下载</Text>
+                )}
+                {isCompleted && (
+                  <View className="flex items-center gap-1">
+                    <CircleCheck size={12} color="#22c55e" />
+                    <Text className="block text-xs text-green-400">下载完成，可以安装</Text>
+                  </View>
+                )}
+                {isError && (
+                  <View className="flex items-center gap-1">
+                    <CircleAlert size={12} color="#ef4444" />
+                    <Text className="block text-xs text-red-400">下载失败，请重试</Text>
+                  </View>
+                )}
+              </View>
             </View>
-          </View>
+          )}
 
-          {/* 按钮区：取消按钮 + 安装按钮 */}
+          {/* 按钮区：关闭按钮 + 主操作按钮 */}
           <View className="flex flex-row gap-3 mt-3">
-            {/* 取消按钮：下载中点击则中断并保存进度，完成后点击则关闭窗口 */}
+            {/* 关闭按钮 */}
             <Button
               className="flex-1 bg-gray-700 text-gray-300"
               disabled={installing}
@@ -172,30 +240,9 @@ export function UpdateDialog({
               <Text className="text-sm">{isDownloading ? '取消' : '关闭'}</Text>
             </Button>
 
-            {/* 安装按钮：进度达 100% 时可用，否则置灰（disabled） */}
-            <Button
-              className="flex-1"
-              style={{
-                backgroundColor: isCompleted ? '#2563eb' : '#374151',
-              }}
-              disabled={!isCompleted || installing}
-              onClick={onInstall}
-            >
-              <Text className="text-sm text-white">
-                {installing ? '安装中...' : '安装'}
-              </Text>
-            </Button>
+            {/* 主操作按钮：更新/下载中/安装/安装中 */}
+            {renderActionButton()}
           </View>
-
-          {/* 错误重试 */}
-          {isError && (
-            <Button
-              className="w-full bg-amber-600 text-white mt-2"
-              onClick={onStartDownload}
-            >
-              <Text className="text-sm">重新下载</Text>
-            </Button>
-          )}
         </View>
       </DialogContent>
     </Dialog>

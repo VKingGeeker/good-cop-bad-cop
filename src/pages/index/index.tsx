@@ -45,7 +45,7 @@ const IndexPage = () => {
 
   // 检查更新 & 下载安装
   const {
-    updateInfo, progress, status, checking, showDialog, installing,
+    updateInfo, progress, status, checking, showDialog, installing, hasUpdate,
     checkUpdate, startDownload, installApk, closeDialog,
   } = useAppUpdate()
 
@@ -241,7 +241,13 @@ const IndexPage = () => {
         <MenuBtn icon={<Download size={20} color="#06b6d4" />}
           label="检查更新" desc={checking ? '正在检查...' : `当前 v${APP_VERSION}`}
           onClick={() => { checkUpdate(); }}
-        />
+        >
+          {hasUpdate && (
+            <View className="ml-2 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded">
+              <Text className="block text-white">有更新</Text>
+            </View>
+          )}
+        </MenuBtn>
       </View>
 
       {/* 创建房间弹窗 */}
@@ -419,9 +425,10 @@ const IndexPage = () => {
                       <View className="flex flex-row items-center gap-2">
                         <Text className="block text-white text-sm font-bold">#{room.roomCode}</Text>
                         {room.hasPassword && (
-                          <View className="flex flex-row items-center gap-1 bg-amber-500/20 px-1.5 py-0.5 rounded">
-                            <Lock size={10} color="#f59e0b" />
-                            <Text className="block text-amber-400 text-xs">密码</Text>
+                          <View className="flex flex-row items-center gap-1 px-1.5 py-0.5 rounded"
+                            style={{ backgroundColor: '#92400e' }}>
+                            <Lock size={10} color="#fbbf24" />
+                            <Text className="block text-amber-300 text-xs">密码</Text>
                           </View>
                         )}
                       </View>
@@ -462,8 +469,8 @@ const IndexPage = () => {
 }
 
 // Menu Button Component - using View directly for better responsiveness
-function MenuBtn({ icon, label, desc, onClick }: {
-  icon: React.ReactNode; label: string; desc: string; onClick: () => void;
+function MenuBtn({ icon, label, desc, onClick, children }: {
+  icon: React.ReactNode; label: string; desc: string; onClick: () => void; children?: React.ReactNode;
 }) {
   return (
     <View onClick={onClick}
@@ -473,7 +480,10 @@ function MenuBtn({ icon, label, desc, onClick }: {
         {icon}
       </View>
       <View className="flex-1">
-        <Text className="block text-white text-sm font-bold">{label}</Text>
+        <View className="flex flex-row items-center">
+          <Text className="block text-white text-sm font-bold">{label}</Text>
+          {children}
+        </View>
         <Text className="block text-gray-400 text-xs mt-1">{desc}</Text>
       </View>
       <Text className="block text-gray-400 text-lg">›</Text>
