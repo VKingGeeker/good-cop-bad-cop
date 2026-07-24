@@ -157,11 +157,6 @@ export class GameRoomService {
 
   /** 加入房间 */
   async joinRoom(roomCode: string, playerName: string, password?: string, existingPlayerId?: string): Promise<{ playerId: string; room: GameRoom }> {
-    // 如果已有 playerId，先从其他房间移除
-    if (existingPlayerId) {
-      await this.removePlayerFromAllRooms(existingPlayerId);
-    }
-
     // 先查询房间
     const { data: room, error: queryError } = await getSupabaseClient()
       .from('game_rooms')
@@ -173,26 +168,70 @@ export class GameRoomService {
     if (!room) throw new Error('房间不存在');
     if (room.status !== 'waiting') throw new Error('房间已开始或已结束');
 
-    // 检查密码
-    if (room.password && room.password !== password) {
+    const currentPlayers = (room.players as PlayerInfo[]) || [];
+
+    // 检查玩家是否已在该房间中
+    if (existingPlayerId) {
+      const existingPlayer = currentPlayers.find(p => p.id === existingPlayerId);
+      if (existingPlayer) {
+        throw new Error('你已在该房间中，请直接返回房间');
+      }
+    }
+
+    // 检查密码（在移除玩家之前验证）
+    if (room.password && room.password !== (password || '')) {
       throw new Error('房间密码错误');
     }
 
-    const currentPlayers = room.players as PlayerInfo[] || [];
     if (currentPlayers.length >= room.max_players) {
       throw new Error('房间已满');
     }
 
-    const playerId = existingPlayerId || crypto.randomUUID();
+    // 密码验证通过后，再从其他房间移除玩家
+    if (existingPlayerId) {
+      await this.removePlayerFromAllRooms(existingPlayerId);
+      // 重新查询房间（可能已被 removePlayerFromAllRooms 修改）
+      const { data: freshRoom } = await getSupabaseClient()
+        .from('game_rooms')
+        .select('*')
+        .eq('room_code', roomCode)
+        .maybeSingle();
+      if (!freshRoom) throw new Error('房间不存在');
+      const freshPlayers = (freshRoom.players as PlayerInfo[]) || [];
+      if (freshPlayers.length >= freshRoom.max_players) {
+        throw new Error('房间已满');
+      }
+      const playerId = existingPlayerId;
+      const newPlayer: PlayerInfo = {
+        id: playerId,
+        name: playerName,
+        isHost: false,
+        joinedAt: new Date().toISOString(),
+      };
+      const updatedPlayers = [...freshPlayers, newPlayer];
+      const { data, error } = await getSupabaseClient()
+        .from('game_rooms')
+        .update({
+          players: updatedPlayers,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('room_code', roomCode)
+        .select()
+        .single();
+      if (error) throw new Error(`加入房间失败: ${error.message}`);
+      if (!data) throw new Error('加入房间失败：未返回数据');
+      return { playerId, room: this.mapRoom(data) };
+    }
+
+    // 无 existingPlayerId 的分支
+    const playerId = crypto.randomUUID();
     const newPlayer: PlayerInfo = {
       id: playerId,
       name: playerName,
       isHost: false,
       joinedAt: new Date().toISOString(),
     };
-
     const updatedPlayers = [...currentPlayers, newPlayer];
-
     const { data, error } = await getSupabaseClient()
       .from('game_rooms')
       .update({
@@ -202,14 +241,9 @@ export class GameRoomService {
       .eq('room_code', roomCode)
       .select()
       .single();
-
     if (error) throw new Error(`加入房间失败: ${error.message}`);
     if (!data) throw new Error('加入房间失败：未返回数据');
-
-    return {
-      playerId,
-      room: this.mapRoom(data),
-    };
+    return { playerId, room: this.mapRoom(data) };
   }
 
   /** 获取房间状态 */

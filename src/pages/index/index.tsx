@@ -418,7 +418,12 @@ const IndexPage = () => {
                     <View className="flex-1">
                       <View className="flex flex-row items-center gap-2">
                         <Text className="block text-white text-sm font-bold">#{room.roomCode}</Text>
-                        {room.hasPassword && <Lock size={12} color="#f59e0b" />}
+                        {room.hasPassword && (
+                          <View className="flex flex-row items-center gap-1 bg-amber-500/20 px-1.5 py-0.5 rounded">
+                            <Lock size={10} color="#f59e0b" />
+                            <Text className="block text-amber-400 text-xs">密码</Text>
+                          </View>
+                        )}
                       </View>
                       <Text className="block text-gray-400 text-xs mt-1">
                         房主: {room.hostName} | {room.playerCount}/{room.maxPlayers}人

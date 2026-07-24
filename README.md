@@ -1,53 +1,74 @@
-# Coze Mini Program
+# 无间疑云 (Good Cop Bad Cop)
 
-这是一个基于 [Taro 4](https://docs.taro.zone/docs/) + [Nest.js](https://nestjs.com/) 的前后端分离项目，由扣子编程 CLI 创建。
+基于 Taro + NestJS + Supabase + TRTC 的多人在线语音桌游「好警察坏警察」。
+玩家通过创建/加入房间进行实时语音对战，支持 Android APK 和 H5 双端运行。
+
+## 游戏简介
+
+找出敌方首领并将其淘汰！忠诚警察 vs 变节黑帮，两大阵营的较量。
+
+- **身份判定**：每人 3 张底细牌，持有「探长」= 忠诚阵营首领，持有「主谋」= 变节阵营首领
+- **回合行动**：调查、取得装备、装备手枪瞄准、射击
+- **中枪处理**：非首领直接淘汰，首领第一次受伤 + 抽装备，第二次淘汰
+- **胜利条件**：主谋被淘汰 → 忠诚获胜；探长被淘汰 → 变节获胜；同时持有探长 + 主谋 → 独自获胜
 
 ## 技术栈
 
-- **整体框架**: Taro 4.1.9
-- **语言**: TypeScript 5.4.5
-- **渲染**: React 18.0.0
-- **样式**: TailwindCSS 4.1.18
-- **Tailwind 适配层**: weapp-tailwindcss 4.9.2
-- **状态管理**: Zustand 5.0.9
-- **图标库**: lucide-react-taro latest
-- **工程化**: Vite 4.2.0
-- **包管理**: pnpm
-- **运行时**: Node.js >= 18
-- **服务端**: NestJS 10.4.15
-- **数据库 ORM**: Drizzle ORM 0.45.1
-- **类型校验**: Zod 4.3.5
+### 前端
+- **框架**: Taro 4.1.9 + React 18 + TypeScript
+- **样式**: Tailwind CSS 4 + weapp-tailwindcss（跨端原子化样式）
+- **组件库**: 自建 shadcn/ui Taro 版（`src/components/ui/`）
+- **图标**: lucide-react-taro
+- **语音**: TRTC Web SDK（`src/hooks/use-trtc.ts`）
+- **打包**: Capacitor → Android APK
+
+### 后端
+- **框架**: NestJS 10 + TypeScript
+- **数据库**: Supabase（PostgreSQL），表名 `game_rooms`
+- **实时通信**: HTTP 轮询（前端每 2 秒请求一次房间/游戏状态）
+- **进程管理**: PM2（进程名 `gcbc-server`）
+- **服务器**: 腾讯云 Ubuntu
 
 ## 项目结构
 
 ```
-├── .cozeproj/                # Coze 平台配置
-│   └── scripts/              # 构建和运行脚本
-├── config/                   # Taro 构建配置
-│   ├── index.ts              # 主配置文件
-│   ├── dev.ts                # 开发环境配置
-│   └── prod.ts               # 生产环境配置
-├── server/                   # NestJS 后端服务
+├── src/                         # 前端源码
+│   ├── pages/                   # 页面
+│   │   ├── index/               # 首页：创建/加入房间、检查更新
+│   │   ├── room/                # 房间等待页：玩家列表、踢人、开始游戏
+│   │   ├── game/                # 游戏页：游戏交互、TRTC 语音
+│   │   └── result/              # 结果页：胜负展示
+│   ├── components/
+│   │   ├── ui/                  # shadcn/ui 组件库
+│   │   └── update/              # 更新弹窗组件
+│   ├── hooks/
+│   │   ├── use-trtc.ts          # TRTC 语音 Hook
+│   │   └── use-app-update.ts    # APP 更新管理 Hook
+│   ├── config/
+│   │   └── app-version.ts       # APP 版本号
+│   └── network.ts               # 网络请求封装
+├── server/                      # NestJS 后端
 │   └── src/
-│       ├── main.ts           # 服务入口
-│       ├── app.module.ts     # 根模块
-│       ├── app.controller.ts # 应用控制器
-│       └── app.service.ts    # 应用服务
-├── src/                      # 前端源码
-│   ├── pages/                # 页面组件
-│   ├── presets/              # 框架预置逻辑（无需读取，如无必要不改动）
-│   ├── utils/                # 工具函数
-│   ├── network.ts            # 封装好的网络请求工具
-│   ├── app.ts                # 应用入口
-│   ├── app.config.ts         # 应用配置
-│   └── app.css               # 全局样式
-├── types/                    # TypeScript 类型定义
-├── key/                      # 小程序密钥（CI 上传用）
-├── .env.local                # 环境变量
-└── project.config.json       # 微信小程序项目配置
+│       ├── main.ts              # 入口：CORS、全局前缀 /api、定时清理
+│       ├── app.module.ts        # 模块注册
+│       ├── app-update.controller.ts  # 版本检查 + APK 下载（Range 断点续传）
+│       └── game/
+│           ├── game.controller.ts    # 游戏房间 API
+│           ├── game-room.service.ts  # 房间逻辑
+│           ├── game-logic.service.ts # 游戏核心逻辑
+│           └── trtc.service.ts       # TRTC 签名生成
+├── android/                     # Android Capacitor 工程
+├── version.json                 # 服务器版本信息
+└── capacitor.config.ts          # Capacitor 配置
 ```
 
 ## 快速开始
+
+### 环境要求
+
+- Node.js >= 18
+- pnpm >= 9
+- JDK 21（Android 打包）
 
 ### 安装依赖
 
@@ -57,707 +78,127 @@ pnpm install
 
 ### 本地开发
 
-同时启动 H5 前端和 NestJS 后端：
-
 ```bash
+# 同时启动 H5 前端 + NestJS 后端
 pnpm dev
-```
 
-- 前端地址：http://localhost:5000
-- 后端地址：http://localhost:3000
-
-单独启动：
-
-```bash
-pnpm dev:web      # 仅 H5 前端
-pnpm dev:weapp    # 仅微信小程序
-pnpm dev:server   # 仅后端服务
+# 或单独启动
+pnpm dev:web        # H5 前端 → http://localhost:5002
+pnpm dev:server     # 后端服务 → http://localhost:3000
 ```
 
 ### 构建
 
 ```bash
-pnpm build        # 构建所有（H5 + 小程序 + 后端）
-pnpm build:web    # 仅构建 H5，输出到 dist-web
-pnpm build:weapp  # 仅构建微信小程序，输出到 dist
-pnpm build:server # 仅构建后端
+pnpm build:web      # 构建 H5，输出到 dist-web
+pnpm build:server   # 构建后端
 ```
 
-### 预览小程序
+## 功能清单
+
+### 房间系统
+- 创建/加入房间（支持 3~8 人，可选密码）
+- 房间列表（显示等待中的房间，含密码标识）
+- 退出房间（房主退出自动转移/删除）
+- 返回主页（不移除玩家，可点「返回房间」重新进入）
+- 房主踢人
+- 单人限制（同一 playerId 只能同时在一个房间）
+- 20 分钟无活动自动清理房间
+- 首页验证房间是否存在后才显示「返回房间」按钮
+
+### 游戏系统
+- 好警察坏警察核心游戏逻辑
+- 游戏行动：调查、装备、瞄准、射击、翻牌
+- 单人测试模式（填充机器人）
+- 游戏结果与胜负判定
+- 房主开始游戏后，其他玩家通过轮询自动跳转
+
+### 语音系统
+- TRTC 实时语音通话
+- 当前回合玩家自动开麦，非回合玩家自动闭麦
+- 手动闭麦/开麦控制
+
+### APP 更新系统
+- 游戏内更新弹窗（进度条 + 安装/取消按钮）
+- 中文更新日志展示（条目间换行分隔）
+- APK 断点续传下载（HTTP Range 请求，取消后保存进度）
+- 下载状态持久化（进度百分比、完成状态保存到 localStorage）
+- 安装按钮状态控制（未达 100% 置灰，完成后可用）
+- 首页 + 游戏页均可触发更新检查
+
+## API 接口
+
+所有接口前缀 `/api`，响应格式 `{ code: 0/-1, msg, data }`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/game/room/create` | 创建房间 |
+| POST | `/api/game/room/join` | 加入房间 |
+| GET | `/api/game/rooms` | 获取房间列表 |
+| GET | `/api/game/room/:roomCode` | 获取房间状态 |
+| POST | `/api/game/room/:roomCode/leave` | 离开房间 |
+| POST | `/api/game/room/:roomCode/kick` | 踢人 |
+| POST | `/api/game/room/:roomCode/start` | 开始游戏 |
+| POST | `/api/game/room/:roomCode/solo-start` | 单人测试开始 |
+| GET | `/api/game/room/:roomCode/state` | 获取游戏状态 |
+| POST | `/api/game/room/:roomCode/action` | 执行游戏行动 |
+| GET | `/api/game/room/:roomCode/result` | 获取游戏结果 |
+| GET | `/api/game/room/:roomCode/trtc-sign` | 获取 TRTC 签名 |
+| GET | `/api/app/version` | 获取最新版本信息 |
+| GET | `/api/app/download` | 下载 APK（支持 Range 断点续传） |
+
+## 部署
+
+### 1. 部署后端
 
 ```bash
-pnpm preview:weapp # 构建并生成预览小程序二维码
+# 上传源文件
+scp -i "E:\Downloads\good_cop_bad_cop.pem" server/src/xxx.ts ubuntu@82.157.199.141:/home/ubuntu/good-cop-bad-cop/server/src/
+
+# 编译并重启
+ssh -i "E:\Downloads\good_cop_bad_cop.pem" ubuntu@82.157.199.141 "cd /home/ubuntu/good-cop-bad-cop/server && npx nest build && pm2 restart gcbc-server"
 ```
 
-## 前端核心开发规范
-
-### 新建页面流程
-
-1. 在 \`src/pages/\` 下创建页面目录
-2. 创建 \`index.tsx\`（页面组件）
-3. 创建 \`index.config.ts\`（页面配置）
-4. 创建 \`index.css\`（页面样式，可选）
-5. 在 \`src/app.config.ts\` 的 \`pages\` 数组中注册页面路径
-
-或使用 Taro 脚手架命令：
+### 2. 构建 Web 资源
 
 ```bash
-pnpm new      # 交互式创建页面/组件
+$env:PROJECT_DOMAIN="http://82.157.199.141:3000"; pnpm build:web
 ```
 
-### 组件库
-
-#### UI 组件
-
-UI 组件位于 `@/components/ui`，推荐按需引入：
-
-```typescript
-import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-```
-
-UI 组件列表:
-
-Accordion,Alert,AlertDialog,AspectRatio,Avatar,Badge,Breadcrumb,Button,ButtonGroup,Calendar,Card,Carousel,Checkbox,CodeBlock,Collapsible,Command,ContextMenu,Dialog,Drawer,DropdownMenu,Field,HoverCard,Input,InputGroup,InputOTP,Label,Menubar,NavigationMenu,Pagination,Popover,Portal,Progress,RadioGroup,Resizable,ScrollArea,Select,Separator,Sheet,Skeleton,Slider,Sonner,Switch,Table,Tabs,Textarea,Toast,Toggle,ToggleGroup,Tooltip
-
-#### Taro 原生组件
-
-可以使用的 Taro 组件（UI 未覆盖）
-
-```typescript
-import { View, Text, Icon, Image } from '@tarojs/components'
-```
-
-Taro 原生组件列表：
-
-Text,Icon,RichText,CheckboxGroup,Editor,Form,Picker,PickerView,PickerViewColumn,Radio,FunctionalPageNavigator,NavigationBar,Navigator,TabItem,Camera,Image,Video,ScrollView,Swiper,SwiperItem,View
-
-### 路径别名
-
-项目配置了 `@/*` 路径别名指向 `src/*`：
-
-```typescript
-import { SomeComponent } from '@/components/some-component'
-import { useUserStore } from '@/stores/user'
-```
-
-### 代码模板
-
-#### 页面组件 (TypeScript + React)
-
-```tsx
-// src/pages/example/index.tsx
-import { View } from '@tarojs/components'
-import { useLoad, useDidShow } from '@tarojs/taro'
-import type { FC } from 'react'
-import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import './index.css'
-
-const ExamplePage: FC = () => {
-  useLoad(() => {
-    console.log('Page loaded.')
-  })
-
-  useDidShow(() => {
-    console.log('Page showed.')
-  })
-
-  return (
-    <View className="p-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Hello Taro!</CardTitle>
-          <CardDescription>
-            页面布局用 Taro 基础组件，交互与视觉优先用项目内置 UI 组件。
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <View className="text-sm text-muted-foreground">
-            组件位于 src/components/ui，推荐按需从 @/components/ui/* 引入。
-          </View>
-        </CardContent>
-        <CardFooter className="justify-end">
-          <Button size="sm" onClick={() => console.log('clicked')}>
-            点击
-          </Button>
-        </CardFooter>
-      </Card>
-    </View>
-  )
-}
-
-export default ExamplePage
-```
-
-#### 页面配置
-
-```typescript
-// src/pages/example/index.config.ts
-import { definePageConfig } from '@tarojs/taro'
-
-export default definePageConfig({
-  navigationBarTitleText: '示例页面',
-  enablePullDownRefresh: true,
-  backgroundTextStyle: 'dark',
-})
-```
-
-#### 应用配置
-
-```typescript
-// src/app.config.ts
-import { defineAppConfig } from '@tarojs/taro'
-
-export default defineAppConfig({
-  pages: [
-    'pages/index/index',
-    'pages/example/index',
-  ],
-  window: {
-    backgroundTextStyle: 'light',
-    navigationBarBackgroundColor: '#fff',
-    navigationBarTitleText: 'App',
-    navigationBarTextStyle: 'black',
-  },
-  // TabBar 配置 (可选)
-  // tabBar: {
-  //   list: [
-  //     { pagePath: 'pages/index/index', text: '首页' },
-  //   ],
-  // },
-})
-```
-
-### 发送请求
-
-**IMPORTANT: 禁止直接使用 Taro.request、Taro.uploadFile、Taro.downloadFile，使用 Network.request、Network.uploadFile、Network.downloadFile 替代。**
-
-Network 是对 Taro.request、Taro.uploadFile、Taro.downloadFile 的封装，自动添加项目域名前缀，参数与 Taro 一致。
-
-✅ 正确使用方式
-
-```typescript
-import { Network } from '@/network'
-
-// GET 请求
-const data = await Network.request({
-  url: '/api/hello'
-})
-
-// POST 请求
-const result = await Network.request({
-  url: '/api/user/login',
-  method: 'POST',
-  data: { username, password }
-})
-
-// 文件上传
-await Network.uploadFile({
-  url: '/api/upload',
-  filePath: tempFilePath,
-  name: 'file'
-})
-
-// 文件下载
-await Network.downloadFile({
-  url: '/api/download/file.pdf'
-})
-```
-
-❌ 错误用法
-
-```typescript
-import Taro from '@tarojs/taro'
-
-// ❌ 会导致自动域名拼接无法生效，除非是特殊指定域名
-const data = await Network.request({
-  url: 'http://localhost/api/hello'
-})
-
-// ❌ 不要直接使用 Taro.request
-await Taro.request({ url: '/api/hello' })
-
-// ❌ 不要直接使用 Taro.uploadFile
-await Taro.uploadFile({ url: '/api/upload', filePath, name: 'file' })
-```
-
-### Zustand 状态管理
-
-```typescript
-// src/stores/user.ts
-import { create } from 'zustand'
-
-interface UserState {
-  userInfo: UserInfo | null
-  token: string
-  setUserInfo: (info: UserInfo) => void
-  setToken: (token: string) => void
-  logout: () => void
-}
-
-interface UserInfo {
-  id: string
-  name: string
-  avatar: string
-}
-
-export const useUserStore = create<UserState>((set) => ({
-  userInfo: null,
-  token: '',
-  setUserInfo: (info) => set({ userInfo: info }),
-  setToken: (token) => set({ token }),
-  logout: () => set({ userInfo: null, token: '' }),
-}))
-```
-
-### Taro 生命周期 Hooks
-
-```typescript
-import {
-  useLoad,             // 页面加载 (onLoad)
-  useReady,            // 页面初次渲染完成 (onReady)
-  useDidShow,          // 页面显示 (onShow)
-  useDidHide,          // 页面隐藏 (onHide)
-  usePullDownRefresh,  // 下拉刷新 (onPullDownRefresh)
-  useReachBottom,      // 触底加载 (onReachBottom)
-  useShareAppMessage,  // 分享 (onShareAppMessage)
-  useRouter,           // 获取路由参数
-} from '@tarojs/taro'
-```
-
-### 路由导航
-
-```typescript
-import Taro from '@tarojs/taro'
-
-// 保留当前页面，跳转到新页面
-Taro.navigateTo({ url: '/pages/detail/index?id=1' })
-
-// 关闭当前页面，跳转到新页面
-Taro.redirectTo({ url: '/pages/detail/index' })
-
-// 跳转到 tabBar 页面
-Taro.switchTab({ url: '/pages/index/index' })
-
-// 返回上一页
-Taro.navigateBack({ delta: 1 })
-
-// 获取路由参数
-const router = useRouter()
-const { id } = router.params
-```
-
-### 图标使用 (lucide-react-taro)
-
-**IMPORTANT: 禁止使用 lucide-react，必须使用 lucide-react-taro 替代。**
-
-lucide-react-taro 是 Lucide 图标库的 Taro 适配版本，专为小程序环境优化，API 与 lucide-react 一致：
-
-```tsx
-import { View } from '@tarojs/components'
-import { House, Settings, User, Search, Camera, Zap } from 'lucide-react-taro'
-
-const IconDemo = () => {
-  return (
-    <View className="flex gap-4">
-      {/* 基本用法 */}
-      <House />
-      {/* 自定义尺寸和颜色 */}
-      <Settings size={32} color="#1890ff" />
-      {/* 自定义描边宽度 */}
-      <User size={24} strokeWidth={1.5} />
-      {/* 绝对描边宽度（描边不随 size 缩放） */}
-      <Camera size={48} strokeWidth={2} absoluteStrokeWidth />
-      {/* 组合使用 */}
-      <Zap size={32} color="#ff6b00" strokeWidth={1.5} className="my-icon" />
-    </View>
-  )
-}
-```
-
-常用属性：
-- `size` - 图标大小（默认 24）
-- `color` - 图标颜色（默认 currentColor，小程序中建议显式设置）
-- `strokeWidth` - 线条粗细（默认 2）
-- `absoluteStrokeWidth` - 绝对描边宽度，启用后描边不随 size 缩放
-- `className` / `style` - 自定义样式
-
-更多图标请访问：https://lucide.dev/icons
-
-### TabBar 图标生成 (CLI 工具)
-
-**IMPORTANT: 微信小程序的 TabBar 不支持 base64 或 SVG 图片，必须使用本地 PNG 文件。**
-
-lucide-react-taro 提供了 CLI 工具来生成 TabBar 所需的 PNG 图标：
+### 3. 打包 Android APK
 
 ```bash
-# 生成带选中状态的图标
-npx taro-lucide-tabbar House Settings User -c "#999999" -a "#1890ff"
+# 复制 web 资源
+Copy-Item -Path "dist-web\*" -Destination "android\app\src\main\assets\public\" -Recurse -Force
 
-# 指定输出目录和尺寸
-npx taro-lucide-tabbar House Settings User -c "#999999" -a "#1890ff" -o ./src/assets/tabbar -s 81
+# 同步 Capacitor
+$env:JAVA_HOME="C:\Program Files\Java\jdk-21.0.2"; npx cap sync android
+
+# 构建 APK（国内需阿里云镜像加速）
+cd android; .\gradlew assembleDebug --init-script init-mirror.gradle
 ```
 
-CLI 参数：
-- `--color, -c` (默认 #000000): 图标颜色
-- `--active-color, -a`: 选中状态颜色
-- `--size, -s` (默认 81): 图标尺寸
-- `--output, -o` (默认 ./tabbar-icons): 输出目录
-- `--stroke-width` (默认 2): 描边宽度
+APK 输出: `android/app/build/outputs/apk/debug/app-debug.apk`
 
-在 `app.config.ts` 中使用生成的图标：
-
-> IMPORTANT：iconPath 和 selectedIconPath 必须以 `./` 开头，否则图标无法渲染
-
-```typescript
-export default defineAppConfig({
-  tabBar: {
-    color: '#999999',
-    selectedColor: '#1890ff',
-    backgroundColor: '#ffffff',
-    borderStyle: 'black',
-    list: [
-      {
-        pagePath: 'pages/index/index',
-        text: '首页',
-        iconPath: './assets/tabbar/house.png',
-        selectedIconPath: './assets/tabbar/house-active.png',
-      },
-      {
-        pagePath: 'pages/settings/index',
-        text: '设置',
-        iconPath: './assets/tabbar/settings.png',
-        selectedIconPath: './assets/tabbar/settings-active.png',
-      },
-      {
-        pagePath: 'pages/user/index',
-        text: '用户',
-        iconPath: './assets/tabbar/user.png',
-        selectedIconPath: './assets/tabbar/user-active.png',
-      },
-    ],
-  },
-})
-
-### Tailwind CSS 样式开发
-
-IMPORTANT：必须使用 tailwindcss 实现样式，只有在必要情况下才能 fallback 到 css / less
-
-> 项目已集成 Tailwind CSS 4.x + weapp-tailwindcss，支持跨端原子化样式：
-
-```tsx
-import { View, Text } from '@tarojs/components'
-import { Button } from '@/components/ui/button'
-
-<View className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
-  <Text className="text-2xl font-bold text-blue-600 mb-4">标题</Text>
-  <View className="w-full px-4">
-    <Button className="w-full" size="lg">
-      按钮
-    </Button>
-  </View>
-</View>
-```
-
-### 性能优化
-
-#### 图片懒加载
-
-```tsx
-import { Image } from '@tarojs/components'
-
-<Image src={imageUrl} lazyLoad mode="aspectFill" />
-```
-
-#### 虚拟列表
-
-```tsx
-import { VirtualList } from '@tarojs/components'
-
-<VirtualList
-  height={500}
-  itemData={list}
-  itemCount={list.length}
-  itemSize={100}
-  renderItem={({ index, style, data }) => (
-    <View style={style}>{data[index].name}</View>
-  )}
-/>
-```
-
-#### 分包加载
-
-```typescript
-// src/app.config.ts
-export default defineAppConfig({
-  pages: ['pages/index/index'],
-  subPackages: [
-    {
-      root: 'packageA',
-      pages: ['pages/detail/index'],
-    },
-  ],
-})
-```
-
-### 小程序限制
-
-| 限制项   | 说明                                     |
-| -------- | ---------------------------------------- |
-| 主包体积 | ≤ 2MB                                    |
-| 总包体积 | ≤ 20MB                                   |
-| 域名配置 | 生产环境需在小程序后台配置合法域名       |
-| 本地开发 | 需在微信开发者工具开启「不校验合法域名」 |
-
-### 权限配置
-
-```typescript
-// src/app.config.ts
-export default defineAppConfig({
-  // ...其他配置
-  permission: {
-    'scope.userLocation': {
-      desc: '你的位置信息将用于小程序位置接口的效果展示'
-    }
-  },
-  requiredPrivateInfos: ['getLocation', 'chooseAddress']
-})
-```
-
-### 位置服务
-
-```typescript
-// 需先在 app.config.ts 中配置 permission
-async function getLocation(): Promise<Taro.getLocation.SuccessCallbackResult> {
-  return await Taro.getLocation({ type: 'gcj02' })
-}
-```
-
-## 后端核心开发规范
-
-本项目后端基于 NestJS + TypeScript 构建，提供高效、可扩展的服务端能力。
-
-### 项目结构
-
-```sh
-.
-├── server/                   # NestJS 后端服务
-│   └── src/
-│       ├── main.ts           # 服务入口
-│       ├── app.module.ts     # 根模块
-│       ├── app.controller.ts # 根控制器
-│       └── app.service.ts    # 根服务
-```
-
-### 开发命令
-
-```sh
-pnpm dev:server // 启动开发服务 (热重载, 默认端口 3000)
-pnpm build:server // 构建生产版本
-```
-
-### 新建模块流程 (CLI)
-
-快速生成样板代码：
+### 4. 发布更新
 
 ```bash
-cd server
+# 上传 APK
+scp -i "E:\Downloads\good_cop_bad_cop.pem" android/app/build/outputs/apk/debug/app-debug.apk ubuntu@82.157.199.141:/home/ubuntu/apks/app-debug.apk
 
-# 生成完整的 CRUD 资源 (包含 Module, Controller, Service, DTO, Entity)
-npx nest g resource modules/product
-
-# 仅生成特定部分
-npx nest g module modules/order
-npx nest g controller modules/order
-npx nest g service modules/order
+# 上传版本信息
+scp -i "E:\Downloads\good_cop_bad_cop.pem" version.json ubuntu@82.157.199.141:/home/ubuntu/apks/version.json
 ```
 
-### 环境变量配置
+同时更新 `src/config/app-version.ts` 中的 `APP_VERSION`。
 
-在 server/ 根目录创建 .env 文件：
+## 开发规范
 
-```sh
-## 服务端口
-PORT=3000
+- **包管理器**: 必须使用 pnpm，禁止 npm/yarn
+- **样式**: 优先 Tailwind CSS，禁止硬编码 px 任意值
+- **组件**: 优先使用 `@/components/ui` 下的组件，不手搓通用 UI
+- **网络请求**: 使用 `Network` 类，禁止直接 `Taro.request`
+- **Git 提交**: 遵循 Commitlint 规范（`feat:` / `fix:` / `style:` 等）
+- **图标**: 使用 lucide-react-taro，注意部分旧名不可用（如 `CheckCircle` → `CircleCheck`）
 
-## 微信小程序配置
-WX_APP_ID=你的AppID
-WX_APP_SECRET=你的AppSecret
-
-## JWT 密钥
-JWT_SECRET=your-super-secret-key
-```
-
-在代码中使用 @nestjs/config 读取环境变量：
-
-```typescript
-import { ConfigService } from '@nestjs/config';
-
-// 在 Service 中注入
-constructor(private configService: ConfigService) {}
-
-getWxConfig() {
-  return {
-    appId: this.configService.get<string>('WX_APP_ID'),
-    secret: this.configService.get<string>('WX_APP_SECRET'),
-  };
-}
-```
-
-### 标准响应封装
-
-建议使用拦截器 (Interceptor) 统一 API 响应格式：
-
-```typeScript
-// src/common/interceptors/transform.interceptor.ts
-import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
-import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
-
-export interface Response<T> {
-  code: number;
-  data: T;
-  message: string;
-}
-
-@Injectable()
-export class TransformInterceptor<T> implements NestInterceptor<T, Response<T>> {
-  intercept(context: ExecutionContext, next: CallHandler): Observable<Response<T>> {
-    return next.handle().pipe(
-      map((data) => ({
-        code: 200,
-        data,
-        message: 'success',
-      })),
-    );
-  }
-}
-```
-
-在 main.ts 中全局注册：
-
-```typescript
-app.useGlobalInterceptors(new TransformInterceptor());
-```
-
-### 微信登录后端实现
-
-```typescript
-// src/modules/auth/auth.service.ts
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
-import { ConfigService } from '@nestjs/config';
-import { lastValueFrom } from 'rxjs';
-
-@Injectable()
-export class AuthService {
-  constructor(
-    private httpService: HttpService,
-    private configService: ConfigService,
-  ) {}
-
-  async code2Session(code: string) {
-    const appId = this.configService.get('WX_APP_ID');
-    const secret = this.configService.get('WX_APP_SECRET');
-    const url = `https://api.weixin.qq.com/sns/jscode2session?appid=${appId}&secret=${secret}&js_code=${code}&grant_type=authorization_code`;
-
-    const { data } = await lastValueFrom(this.httpService.get(url));
-
-    if (data.errcode) {
-      throw new UnauthorizedException(`微信登录失败: ${data.errmsg}`);
-    }
-
-    return data; // 包含 openid, session_key
-  }
-}
-```
-
-### 异常处理
-
-使用全局异常过滤器 (Filter) 统一错误响应：
-
-```typescript
-// src/common/filters/http-exception.filter.ts
-import { ExceptionFilter, Catch, ArgumentsHost, HttpException } from '@nestjs/common';
-import { Response } from 'express';
-
-@Catch(HttpException)
-export class HttpExceptionFilter implements ExceptionFilter {
-  catch(exception: HttpException, host: ArgumentsHost) {
-    const ctx = host.switchToHttp();
-    const response = ctx.getResponse<Response>();
-    const status = exception.getStatus();
-    const exceptionResponse = exception.getResponse();
-
-    response.status(status).json({
-      code: status,
-      message: typeof exceptionResponse === 'string' ? exceptionResponse : (exceptionResponse as any).message,
-      data: null,
-    });
-  }
-}
-```
-
-在 main.ts 中注册：
-
-```
-app.useGlobalFilters(new HttpExceptionFilter());
-```
-
-### 数据库 (Drizzle ORM)
-
-推荐使用 [Drizzle ORM](https://orm.drizzle.team/)，已预安装。
-
-### 类型校验 (Zod)
-
-项目集成了 [Zod](https://zod.dev/) 用于运行时类型校验。
-
-#### 定义 Schema
-
-```typescript
-import { z } from 'zod';
-
-// 基础类型
-const userSchema = z.object({
-  id: z.number(),
-  name: z.string().min(1).max(50),
-  email: z.string().email(),
-  age: z.number().int().positive().optional(),
-});
-
-// 从 schema 推导 TypeScript 类型
-type User = z.infer<typeof userSchema>;
-```
-
-#### 请求校验
-
-```typescript
-// src/modules/user/dto/create-user.dto.ts
-import { z } from 'zod';
-
-export const createUserSchema = z.object({
-  nickname: z.string().min(1, '昵称不能为空').max(20, '昵称最多20个字符'),
-  avatar: z.string().url('头像必须是有效的URL').optional(),
-  phone: z.string().regex(/^1[3-9]\d{9}$/, '手机号格式不正确').optional(),
-});
-
-export type CreateUserDto = z.infer<typeof createUserSchema>;
-
-// 在 Controller 中使用
-@Post()
-create(@Body() body: unknown) {
-  const result = createUserSchema.safeParse(body);
-  if (!result.success) {
-    throw new BadRequestException(result.error.errors);
-  }
-  return this.userService.create(result.data);
-}
-```
+详细开发规范见 [AGENTS.md](./AGENTS.md)，完整项目文档见 [PROJECT_GUIDE.md](./PROJECT_GUIDE.md)。
