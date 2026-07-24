@@ -18,6 +18,7 @@ const STORAGE_PROGRESS = 'updateDownloadProgress'
 const STORAGE_COMPLETE = 'updateDownloadComplete'
 const STORAGE_DOWNLOADED_BYTES = 'updateDownloadedBytes'
 const STORAGE_TOTAL_SIZE = 'updateTotalSize'
+const STORAGE_DOWNLOADED_VERSION = 'updateDownloadedVersion' // 记录下载完成时的版本号
 
 /**
  * 检测是否在 Capacitor 原生环境
@@ -85,10 +86,24 @@ export function useAppUpdate() {
     mountedRef.current = true
     const isNative = isNativePlatform()
     const savedComplete = Taro.getStorageSync(STORAGE_COMPLETE)
+    const savedVersion = Taro.getStorageSync(STORAGE_DOWNLOADED_VERSION) as string
 
     if (savedComplete) {
-      setProgress(100)
-      setStatus('completed')
+      // 已下载完成：检查下载的版本是否与当前 APP 版本一致
+      if (!savedVersion || savedVersion === APP_VERSION) {
+        // 无版本记录（旧版下载遗留）或下载版本=当前版本（已安装）→ 清理
+        Taro.removeStorageSync(STORAGE_COMPLETE)
+        Taro.removeStorageSync(STORAGE_PROGRESS)
+        Taro.removeStorageSync(STORAGE_DOWNLOADED_BYTES)
+        Taro.removeStorageSync(STORAGE_TOTAL_SIZE)
+        Taro.removeStorageSync(STORAGE_DOWNLOADED_VERSION)
+        setProgress(0)
+        setStatus('idle')
+      } else {
+        // 下载版本 ≠ 当前版本 → 保留状态，用户可能还没安装
+        setProgress(100)
+        setStatus('completed')
+      }
     } else {
       const savedProgress = Taro.getStorageSync(STORAGE_PROGRESS) || 0
       if (savedProgress > 0) {
@@ -127,6 +142,18 @@ export function useAppUpdate() {
         downloadState.totalSize = info.apkSize
         if (info.version && info.version !== APP_VERSION) {
           setHasUpdate(true)
+          // 服务器有新版本：检查本地下载的版本是否匹配
+          const savedVersion = Taro.getStorageSync(STORAGE_DOWNLOADED_VERSION) as string
+          if (!savedVersion || savedVersion !== info.version) {
+            // 无版本记录或本地下载的是旧版本 APK → 清理，强制重新下载
+            Taro.removeStorageSync(STORAGE_COMPLETE)
+            Taro.removeStorageSync(STORAGE_PROGRESS)
+            Taro.removeStorageSync(STORAGE_DOWNLOADED_BYTES)
+            Taro.removeStorageSync(STORAGE_TOTAL_SIZE)
+            Taro.removeStorageSync(STORAGE_DOWNLOADED_VERSION)
+            setProgress(0)
+            setStatus('idle')
+          }
         } else {
           setHasUpdate(false)
         }
@@ -149,6 +176,18 @@ export function useAppUpdate() {
 
         if (info.version && info.version !== APP_VERSION) {
           setHasUpdate(true)
+          // 服务器有新版本：检查本地下载的版本是否匹配
+          const savedVersion = Taro.getStorageSync(STORAGE_DOWNLOADED_VERSION) as string
+          if (!savedVersion || savedVersion !== info.version) {
+            // 无版本记录或本地下载的是旧版本 APK → 清理，强制重新下载
+            Taro.removeStorageSync(STORAGE_COMPLETE)
+            Taro.removeStorageSync(STORAGE_PROGRESS)
+            Taro.removeStorageSync(STORAGE_DOWNLOADED_BYTES)
+            Taro.removeStorageSync(STORAGE_TOTAL_SIZE)
+            Taro.removeStorageSync(STORAGE_DOWNLOADED_VERSION)
+            setProgress(0)
+            setStatus('idle')
+          }
           setShowDialog(true)
         } else {
           setHasUpdate(false)
@@ -201,6 +240,7 @@ export function useAppUpdate() {
         setStatus('completed')
         Taro.setStorageSync(STORAGE_COMPLETE, true)
         Taro.setStorageSync(STORAGE_PROGRESS, 100)
+        Taro.setStorageSync(STORAGE_DOWNLOADED_VERSION, updateInfo.version)
       }
     }).catch((err: any) => {
       if (!mountedRef.current) return
@@ -274,6 +314,7 @@ export function useAppUpdate() {
         setStatus('completed')
         Taro.setStorageSync(STORAGE_COMPLETE, true)
         Taro.setStorageSync(STORAGE_PROGRESS, 100)
+        Taro.setStorageSync(STORAGE_DOWNLOADED_VERSION, updateInfo.version)
       } else {
         setStatus('error')
       }
@@ -354,6 +395,7 @@ export function useAppUpdate() {
       const msg = err?.message || '安装失败'
       if (msg.includes('安装包不存在')) {
         Taro.removeStorageSync(STORAGE_COMPLETE)
+        Taro.removeStorageSync(STORAGE_DOWNLOADED_VERSION)
         setProgress(0)
         setStatus('idle')
       }
@@ -456,6 +498,7 @@ export function useAppUpdate() {
     Taro.removeStorageSync(STORAGE_PROGRESS)
     Taro.removeStorageSync(STORAGE_DOWNLOADED_BYTES)
     Taro.removeStorageSync(STORAGE_TOTAL_SIZE)
+    Taro.removeStorageSync(STORAGE_DOWNLOADED_VERSION)
     setProgress(0)
     setStatus('idle')
   }, [])
