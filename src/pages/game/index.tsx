@@ -106,6 +106,7 @@ export default function GamePage() {
     roomCode,
     playerId,
     isMyTurn,
+    containerId: 'trtc-audio-container',
   })
 
   // APP 更新检查
@@ -524,18 +525,25 @@ export default function GamePage() {
           </View>
         )}
         <View className="w-full max-w-md mx-auto">
+            {/* TRTC 音频播放容器（隐藏）- 必须提供给 stream.play() */}
+            <View id="trtc-audio-container" className="hidden" />
+            
             {/* 身份显示 - 始终可见 */}
             <View className="bg-gray-800 rounded-xl p-3 mb-4">
-              <View className="flex items-center gap-2 mb-2">
-                <Text className="block text-gray-400 text-xs">你的身份</Text>
-                <Text className="block text-xs px-2 py-1 rounded-full" style={{
-                  backgroundColor: `${getIdentityColor()}22`,
-                  color: getIdentityColor(),
-                  border: `1px solid ${getIdentityColor()}44`,
-                }}
-                >
-                  {getIdentityText()}
-                </Text>
+              <View className="flex items-center justify-between mb-2">
+                <View className="flex items-center gap-2">
+                  <Text className="block text-gray-400 text-xs">你的身份</Text>
+                  <Text className="block text-xs px-2 py-1 rounded-full" style={{
+                    backgroundColor: `${getIdentityColor()}22`,
+                    color: getIdentityColor(),
+                    border: `1px solid ${getIdentityColor()}44`,
+                  }}
+                  >
+                    {getIdentityText()}
+                  </Text>
+                </View>
+                {/* 语音状态图标 - 紧凑内联布局 */}
+                <VoicePanel trtc={trtc} isMyTurn={isMyTurn} currentPlayerName={currentPlayer?.name} />
               </View>
               <View className="flex gap-2">
                 {myPlayer?.cards.map((card, ci) => (
@@ -565,9 +573,6 @@ export default function GamePage() {
                 ))}
               </View>
             </View>
-
-            {/* 实时语音面板 */}
-            <VoicePanel trtc={trtc} isMyTurn={isMyTurn} currentPlayerName={currentPlayer?.name} />
 
             {/* 调查结果 */}
             {investResult && (
@@ -1070,7 +1075,7 @@ function ActionBtn({
   )
 }
 
-// 实时语音面板组件
+// 实时语音图标组件（紧凑内联布局）
 function VoicePanel({
   trtc,
   isMyTurn,
@@ -1080,16 +1085,19 @@ function VoicePanel({
   isMyTurn: boolean
   currentPlayerName?: string
 }) {
-  // 小程序环境：不支持实时语音，显示提示
+  // 小程序环境：不支持实时语音，显示小图标提示
   if (trtc.isWeapp) {
     return (
-      <View className="rounded-xl p-3 mb-4 flex items-center gap-2" style={{
-        background: 'rgba(55, 65, 81, 0.5)',
-        border: '1px solid #4b5563',
-      }}>
-        <Text className="block text-gray-500 text-xs flex-1">
-          小程序环境不支持实时语音，请在安卓 App 中体验
-        </Text>
+      <View className="flex items-center gap-1.5">
+        <View className="rounded-full flex items-center justify-center" style={{
+          width: '24px',
+          height: '24px',
+          backgroundColor: '#374151',
+          border: '1px solid #4b5563',
+        }}>
+          <Text className="block text-gray-500 text-xs">🔇</Text>
+        </View>
+        <Text className="block text-gray-500 text-xs">小程序不支持</Text>
       </View>
     )
   }
@@ -1097,98 +1105,71 @@ function VoicePanel({
   // 未加入房间
   if (!trtc.joined) {
     return (
-      <View className="rounded-xl p-3 mb-4 flex items-center justify-between" style={{
-        background: 'rgba(55, 65, 81, 0.5)',
-        border: '1px solid #4b5563',
-      }}>
-        <View className="flex items-center gap-2 flex-1">
-          <Text className="block text-gray-400 text-xs">
-            {trtc.error || '加入语音房间开启实时通话'}
-          </Text>
-        </View>
+      <View className="flex items-center gap-1.5">
         <Button
-          className="bg-blue-600 text-white text-xs px-3 py-1"
+          className="bg-blue-600 text-white text-xs px-2 py-1"
           onClick={trtc.joinRoom}
           disabled={trtc.connecting}
+          size="mini"
         >
-          {trtc.connecting ? '连接中...' : '加入语音'}
+          {trtc.connecting ? '连接中' : '语音'}
         </Button>
+        {trtc.error && (
+          <Text className="block text-red-400 text-xs">{trtc.error}</Text>
+        )}
       </View>
     )
   }
 
-  // 已加入房间
+  // 已加入房间 - 紧凑图标布局
   return (
-    <View className="rounded-xl p-3 mb-4" style={{
-      background: 'rgba(55, 65, 81, 0.7)',
-      border: `1px solid ${trtc.micOn && isMyTurn ? '#34d39966' : '#4b5563'}`,
-    }}>
-      <View className="flex items-center justify-between">
-        <View className="flex items-center gap-2 flex-1">
-          {/* 连接状态点 */}
-          <View
-            className="rounded-full"
-            style={{
-              width: '8px',
-              height: '8px',
-              backgroundColor: trtc.micOn && isMyTurn ? '#34d399' : '#9ca3af',
-              boxShadow: trtc.micOn && isMyTurn ? '0 0 6px rgba(52, 211, 153, 0.8)' : 'none',
-            }}
-          />
-          <View className="flex flex-col">
-            {isMyTurn ? (
-              <Text className="block text-xs font-medium" style={{
-                color: trtc.micOn ? '#34d399' : '#9ca3af',
-              }}>
-                {trtc.micOn ? '正在发言' : '麦克风已关闭'}
-              </Text>
-            ) : (
-              <Text className="block text-gray-400 text-xs">
-                {currentPlayerName} 发言中 · 静音收听
-              </Text>
-            )}
-            <Text className="block text-gray-500 text-xs mt-0.5">
-              {trtc.peerCount > 0 ? `${trtc.peerCount + 1} 人在线` : '仅你一人'}
-            </Text>
-          </View>
-        </View>
-
-        {/* 麦克风按钮 - 仅当前回合玩家可操作 */}
-        {isMyTurn ? (
-          <View
-            className="rounded-full flex items-center justify-center"
-            style={{
-              width: '44px',
-              height: '44px',
-              backgroundColor: trtc.micOn ? '#dc2626' : '#374151',
-              border: `1px solid ${trtc.micOn ? '#ef4444' : '#4b5563'}`,
-              boxShadow: trtc.micOn ? '0 2px 8px rgba(220, 38, 38, 0.5)' : 'none',
-            }}
-            onClick={trtc.toggleMic}
-          >
-            <Text className="block text-white text-lg">
-              {trtc.micOn ? '🎙' : '🔇'}
-            </Text>
-          </View>
-        ) : (
-          <View
-            className="rounded-full flex items-center justify-center"
-            style={{
-              width: '44px',
-              height: '44px',
-              backgroundColor: '#1f2937',
-              border: '1px solid #374151',
-              opacity: 0.5,
-            }}
-          >
-            <Text className="block text-gray-600 text-lg">🔇</Text>
-          </View>
-        )}
+    <View className="flex items-center gap-2">
+      {/* 状态点 + 在线人数 */}
+      <View className="flex items-center gap-1.5">
+        <View
+          className="rounded-full"
+          style={{
+            width: '6px',
+            height: '6px',
+            backgroundColor: trtc.micOn && isMyTurn ? '#34d399' : '#9ca3af',
+            boxShadow: trtc.micOn && isMyTurn ? '0 0 4px rgba(52, 211, 153, 0.8)' : 'none',
+          }}
+        />
+        <Text className="block text-gray-500 text-xs">
+          {trtc.peerCount + 1}人
+        </Text>
       </View>
 
-      {/* 错误提示 */}
-      {trtc.error && (
-        <Text className="block text-red-400 text-xs mt-2">{trtc.error}</Text>
+      {/* 麦克风按钮 */}
+      {isMyTurn ? (
+        <View
+          className="rounded-full flex items-center justify-center"
+          style={{
+            width: '32px',
+            height: '32px',
+            backgroundColor: trtc.micOn ? '#dc2626' : '#374151',
+            border: `1px solid ${trtc.micOn ? '#ef4444' : '#4b5563'}`,
+            boxShadow: trtc.micOn ? '0 2px 6px rgba(220, 38, 38, 0.5)' : 'none',
+          }}
+          onClick={trtc.toggleMic}
+        >
+          <Text className="block text-white text-sm">
+            {trtc.micOn ? '🎙' : '🔇'}
+          </Text>
+        </View>
+      ) : (
+        <View
+          className="rounded-full flex items-center justify-center"
+          style={{
+            width: '32px',
+            height: '32px',
+            backgroundColor: '#1f2937',
+            border: '1px solid #374151',
+            opacity: 0.6,
+          }}
+        >
+          <Text className="block text-gray-500 text-sm">🔇</Text>
+        </View>
       )}
     </View>
   )

@@ -15,6 +15,8 @@ interface UseTrtcOptions {
   playerId: string
   /** 是否是当前玩家的行动回合（狼人杀式：仅当前回合玩家可发言） */
   isMyTurn: boolean
+  /** 远端音频播放容器的 DOM 元素 ID（TRTC SDK play() 必需参数） */
+  containerId?: string
 }
 
 export interface UseTrtcResult {
@@ -38,7 +40,7 @@ export interface UseTrtcResult {
   toggleMic: () => Promise<void>
 }
 
-export function useTRTC({ roomCode, playerId, isMyTurn }: UseTrtcOptions): UseTrtcResult {
+export function useTRTC({ roomCode, playerId, isMyTurn, containerId }: UseTrtcOptions): UseTrtcResult {
   const isWeapp = Taro.getEnv() === Taro.ENV_TYPE.WEAPP
 
   const [joined, setJoined] = useState(false)
@@ -107,9 +109,12 @@ export function useTRTC({ roomCode, playerId, isMyTurn }: UseTrtcOptions): UseTr
       })
       client.on('stream-subscribed', (event: any) => {
         // 显式调用 play() 播放远端音频，否则远端声音无法输出
+        // TRTC SDK play() 必须传入 elementId 参数，指向 DOM 容器元素
         try {
           const stream = event?.stream || event
-          stream?.play?.()
+          if (containerId) {
+            stream?.play?.(containerId)
+          }
         } catch (e) {
           // 播放失败不阻断
         }
@@ -159,7 +164,7 @@ export function useTRTC({ roomCode, playerId, isMyTurn }: UseTrtcOptions): UseTr
     } finally {
       setConnecting(false)
     }
-  }, [isH5, joined, connecting, fetchSign, isMyTurn])
+  }, [isH5, joined, connecting, fetchSign, isMyTurn, containerId])
 
   /** 离开语音房间 */
   const leaveRoom = useCallback(async () => {
