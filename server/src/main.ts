@@ -1,7 +1,9 @@
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '@/app.module';
 import * as express from 'express';
 import { HttpStatusInterceptor } from '@/interceptors/http-status.interceptor';
+import { GameRoomService } from '@/game/game-room.service';
 
 function parsePort(): number {
   const args = process.argv.slice(2);
@@ -31,7 +33,13 @@ async function bootstrap() {
   // 1. 开启优雅关闭 Hooks (关键!)
   app.enableShutdownHooks();
 
-  // 2. 解析端口
+  // 2. 定时清理超时房间（每 5 分钟执行一次，清理 20 分钟无活动的房间）
+  const gameRoomService = app.get(GameRoomService);
+  setInterval(() => {
+    gameRoomService.cleanupInactiveRooms().catch(() => {});
+  }, 5 * 60 * 1000);
+
+  // 3. 解析端口
   const port = parsePort();
   try {
     await app.listen(port);

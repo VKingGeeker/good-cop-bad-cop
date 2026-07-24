@@ -1,10 +1,30 @@
-import { useState, useEffect, useCallback } from 'react'
-import { View, Text } from '@tarojs/components'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { View, Text, ScrollView, Image } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
 import { Network } from '@/network'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Crosshair, Target, Shield, Skull, Swords, Eye, Package, ChevronRight } from 'lucide-react-taro'
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel } from '@/components/ui/alert-dialog'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Crosshair, Target, Shield, Swords, Eye, Package, ChevronRight, Backpack, SkipForward, Copy, Download } from 'lucide-react-taro'
+import { useTRTC } from '@/hooks/use-trtc'
+import { useAppUpdate } from '@/hooks/use-app-update'
+import { UpdateDialog } from '@/components/update/update-dialog'
+
+// 头像占位图 prompt 列表（后续可替换为实际素材）
+const AVATAR_PROMPTS = [
+  'stylized detective character avatar, male, fedora hat, serious expression, dark moody background, digital art portrait',
+  'stylized detective character avatar, female, short hair, confident expression, dark moody background, digital art portrait',
+  'stylized detective character avatar, older male, beard, wise expression, dark moody background, digital art portrait',
+  'stylized detective character avatar, young female, glasses, analytical expression, dark moody background, digital art portrait',
+  'stylized detective character avatar, male, trench coat, determined expression, dark moody background, digital art portrait',
+  'stylized detective character avatar, female, ponytail, alert expression, dark moody background, digital art portrait',
+  'stylized detective character avatar, male, sunglasses, cool expression, dark moody background, digital art portrait',
+  'stylized detective character avatar, female, scarf, mysterious expression, dark moody background, digital art portrait',
+]
+
+const getAvatarUrl = (index: number) =>
+  `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=${encodeURIComponent(AVATAR_PROMPTS[index % AVATAR_PROMPTS.length])}&image_size=square`
 
 const EQUIPMENT_MAP: Record<string, string> = {
   'smoke': '烟雾弹', 'injunction': '禁制令', 'coffee': '咖啡',
@@ -18,7 +38,6 @@ const EQUIPMENT_MAP: Record<string, string> = {
 interface PlayerState {
   id: string
   name: string
-  alive: boolean
   hasGun: boolean
   aimingAt: string | null
   wounded: boolean
@@ -41,6 +60,14 @@ interface GameState {
   gameLog: { message: string; type: string }[]
   winner: string | null
   investigationResult: { targetName: string; cardIndex: number; cardType: string } | null
+  lastActions: Array<{
+    actorId: string
+    actorName: string
+    action: string
+    targetId: string
+    targetName: string
+    round: number
+  }>
 }
 
 export default function GamePage() {
@@ -55,24 +82,60 @@ export default function GamePage() {
   const [investigateTarget, setInvestigateTarget] = useState<string | null>(null)
   const [investResult, setInvestResult] = useState<{ targetName: string; cardIndex: number; cardType: string } | null>(null)
   const [equipDetail, setEquipDetail] = useState<any>(null)
+  const fetchingRef = useRef(false)
+  const dismissedInvestRef = useRef<string | null>(null)
+  const [linePositions, setLinePositions] = useState<{
+    from: { x: number; y: number }
+    to: { x: number; y: number }
+    label: string
+    color: string
+    dashed?: boolean
+    sourceIndex: number
+    targetIndex: number
+  }[]>([])
 
   const isMyTurn = gameState?.currentPlayerDeviceId === playerId
   const myPlayer = gameState?.players.find(p => p.id === playerId)
   const currentPlayer = gameState?.players[gameState.currentPlayerIndex]
 
+  // TRTC 实时语音（狼人杀式：仅当前回合玩家可发言）
+  const trtc = useTRTC({
+    roomCode,
+    playerId,
+    isMyTurn,
+  })
+
+  // APP 更新检查
+  const {
+    updateInfo, progress, status, checking, showDialog, installing,
+    checkUpdate, startDownload, installApk, closeDialog,
+  } = useAppUpdate()
+
   const fetchGameState = useCallback(async () => {
+    // 防止并发请求导致 ERR_ABORTED
+    if (fetchingRef.current) return
+    fetchingRef.current = true
     try {
       const res = await Network.request({ url: `/api/game/room/${roomCode}/state?playerId=${playerId}` })
-      const result = res.data as any
-      if (result.code === 0) {
+      const result = res?.data as any
+      if (result?.code === 0) {
         setGameState(result.data)
-        // 检查是否有调查结果
-        if (result.data.investigationResult) {
-          setInvestResult(result.data.investigationResult)
+        if (result.data?.investigationResult) {
+          const inv = result.data.investigationResult
+          const invKey = `${inv.targetName}-${inv.cardIndex}-${inv.cardType}`
+          // 跳过用户已关闭的调查结果，避免轮询重新弹出
+          if (invKey !== dismissedInvestRef.current) {
+            setInvestResult(inv)
+          }
+        } else {
+          setInvestResult(null)
+          dismissedInvestRef.current = null
         }
       }
-    } catch (e) {
-      console.error('fetch state error:', e)
+    } catch {
+      // 后端重启/网络抖动时静默处理，轮询会自动恢复
+    } finally {
+      fetchingRef.current = false
     }
   }, [roomCode, playerId])
 
@@ -91,6 +154,125 @@ export default function GamePage() {
     }
   }, [gameState?.winner, roomCode, playerId])
 
+  // 测量头像位置，计算连线（瞄准 + 最近行动）
+  useEffect(() => {
+    if (!gameState) return
+    const timer = setTimeout(() => {
+      const query = Taro.createSelectorQuery()
+      gameState.players.forEach((_, i) => {
+        query.select(`#avatar-${i}`).boundingClientRect()
+      })
+      query.select('#player-grid').boundingClientRect()
+      query.exec((rects: any[]) => {
+        const containerRect = rects[rects.length - 1]
+        if (!containerRect) return
+
+        const centerOf = (i: number) => ({
+          x: rects[i].left + rects[i].width / 2 - containerRect.left,
+          y: rects[i].top + rects[i].height / 2 - containerRect.top,
+        })
+
+        const rawLines: Array<{
+          from: { x: number; y: number }
+          to: { x: number; y: number }
+          label: string
+          color: string
+          dashed: boolean
+          sourceIndex: number
+          targetIndex: number
+        }> = []
+
+        // 1. 持续瞄准连线（红色虚线）
+        gameState.players.forEach((p, i) => {
+          if (p.aimingAt) {
+            const targetIndex = gameState.players.findIndex(tp => tp.id === p.aimingAt)
+            if (targetIndex >= 0 && rects[i] && rects[targetIndex]) {
+              rawLines.push({
+                from: centerOf(i),
+                to: centerOf(targetIndex),
+                label: '瞄准',
+                color: '#ef4444',
+                dashed: true,
+                sourceIndex: i,
+                targetIndex,
+              })
+            }
+          }
+        })
+
+        // 2. 最近行动连线（调查/道具/射击/瞄准）
+        ;(gameState.lastActions || []).forEach((action) => {
+          // 跳过瞄准/装备手枪行动——如果该玩家仍在瞄准同一目标，已有持续连线
+          if (action.action === 'aim' || action.action === 'gun') {
+            const actor = gameState.players.find(p => p.id === action.actorId)
+            if (actor?.aimingAt === action.targetId) return
+          }
+
+          const sourceIndex = gameState.players.findIndex(p => p.id === action.actorId)
+          const targetIndex = gameState.players.findIndex(p => p.id === action.targetId)
+          if (sourceIndex < 0 || targetIndex < 0 || !rects[sourceIndex] || !rects[targetIndex]) return
+
+          const actionConfig: Record<string, { label: string; color: string }> = {
+            investigate: { label: '调查', color: '#60a5fa' },
+            useEquipment: { label: '道具', color: '#34d399' },
+            shoot: { label: '射击', color: '#f87171' },
+            aim: { label: '瞄准', color: '#fbbf24' },
+            gun: { label: '手枪', color: '#fbbf24' },
+          }
+          const cfg = actionConfig[action.action]
+          if (!cfg) return
+
+          rawLines.push({
+            from: centerOf(sourceIndex),
+            to: centerOf(targetIndex),
+            label: cfg.label,
+            color: cfg.color,
+            dashed: false,
+            sourceIndex,
+            targetIndex,
+          })
+        })
+
+        // 3. 防重叠：同一对玩家之间多条连线，垂直偏移
+        const pairGroups: Record<string, number[]> = {}
+        rawLines.forEach((_, i) => {
+          const key = `${Math.min(rawLines[i].sourceIndex, rawLines[i].targetIndex)}-${Math.max(rawLines[i].sourceIndex, rawLines[i].targetIndex)}`
+          if (!pairGroups[key]) pairGroups[key] = []
+          pairGroups[key].push(i)
+        })
+
+        const offsetLines = rawLines.map((line, i) => {
+          const key = `${Math.min(line.sourceIndex, line.targetIndex)}-${Math.max(line.sourceIndex, line.targetIndex)}`
+          const group = pairGroups[key]
+          const groupIndex = group.indexOf(i)
+          const groupSize = group.length
+          // 仅当多条线在同一对玩家之间时偏移
+          if (groupSize <= 1) return line
+
+          const offsetStep = 10
+          const offset = (groupIndex - (groupSize - 1) / 2) * offsetStep
+
+          const dx = line.to.x - line.from.x
+          const dy = line.to.y - line.from.y
+          const len = Math.sqrt(dx * dx + dy * dy)
+          if (len === 0) return line
+
+          const perpX = -dy / len * offset
+          const perpY = dx / len * offset
+
+          return {
+            ...line,
+            from: { x: line.from.x + perpX, y: line.from.y + perpY },
+            to: { x: line.to.x + perpX, y: line.to.y + perpY },
+          }
+        })
+
+        setLinePositions(offsetLines)
+      })
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [gameState])
+
   const submitAction = async (action: string, target?: string, payload?: any) => {
     if (submitting) return
     setSubmitting(true)
@@ -102,8 +284,8 @@ export default function GamePage() {
         method: 'POST',
         data: body,
       })
-      const result = res.data as any
-      if (result.code === 0) {
+      const result = res?.data as any
+      if (result?.code === 0) {
         await fetchGameState()
         setActionModal(null)
         setInvestigateTarget(null)
@@ -169,69 +351,163 @@ export default function GamePage() {
 
   if (!gameState) {
     return (
-      <View className="flex items-center justify-center h-screen bg-gray-900">
-        <Text className="block text-gray-400 text-lg">加载中...</Text>
+      <View className="flex flex-col h-screen bg-[#0a0e1a] overflow-hidden p-4">
+        {/* 头像行骨架 */}
+        <View className="grid grid-cols-4 gap-3 mb-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <View key={i} className="flex flex-col items-center">
+              <Skeleton className="w-14 h-14 rounded-full" />
+              <Skeleton className="w-14 h-3 mt-1" />
+            </View>
+          ))}
+        </View>
+        {/* 内容区骨架 */}
+        <View className="flex-1 flex flex-col gap-3">
+          <Skeleton className="w-full h-20 rounded-xl" />
+          <Skeleton className="w-full h-16 rounded-xl" />
+          <View className="grid grid-cols-2 gap-3">
+            <Skeleton className="w-full h-20 rounded-xl" />
+            <Skeleton className="w-full h-20 rounded-xl" />
+          </View>
+        </View>
       </View>
     )
   }
 
-  const alivePlayers = gameState.players.filter(p => p.alive)
+  const alivePlayers = gameState.players.filter(p => !p.eliminated)
 
   return (
-    <View className="h-screen bg-gray-900 flex flex-col overflow-hidden" style={{ position: 'relative' }}>
-      {/* 瞄准线区域 */}
-      <View className="absolute inset-0 z-10 pointer-events-none"></View>
-
+    <View className="h-screen bg-[#0a0e1a] flex flex-col overflow-hidden" style={{ position: 'relative' }}>
       {/* 顶部状态栏 */}
-      <View className="flex items-center justify-between px-4 py-2 bg-gray-800 z-20">
+      <View className="flex items-center justify-between px-4 py-2 z-20" style={{
+        background: 'linear-gradient(180deg, #1f2937 0%, #111827 100%)',
+        borderBottom: '1px solid #374151',
+      }}
+      >
         <View className="flex items-center gap-2">
-          <Text className="block text-gray-300 text-xs">第{gameState.round}轮</Text>
-          <Text className="block text-gray-500 text-xs">|</Text>
-          <Text className="block text-gray-300 text-xs">
+          <Text className="block text-gray-300 text-xs font-medium">第{gameState.round}轮</Text>
+          <Text className="block text-gray-600 text-xs">|</Text>
+          <Text className="block text-gray-400 text-xs">
             {gameState.direction === 1 ? '顺时针' : '逆时针'}
           </Text>
         </View>
-        <View className="flex items-center gap-2">
-          <Crosshair size={14} color="#ef4444" />
-          <Text className="block text-gray-300 text-xs">{gameState.gunCount}把</Text>
-        </View>
         <View className="flex items-center gap-1">
-          <Text className="block text-gray-400 text-xs">
-            {!isMyTurn && currentPlayer ? `${currentPlayer.name}行动中` : '你的回合'}
-          </Text>
+          <Crosshair size={14} color="#ef4444" />
+          <Text className="block text-gray-300 text-xs font-medium">{gameState.gunCount}把</Text>
+        </View>
+        <View className="flex items-center gap-2">
+          <View className="flex items-center gap-1">
+            {isMyTurn ? (
+              <Text className="block text-amber-400 text-xs font-semibold">你的回合</Text>
+            ) : (
+              <Text className="block text-gray-400 text-xs">
+                {currentPlayer?.name}行动中
+              </Text>
+            )}
+          </View>
+          {/* 检查更新按钮 */}
+          <View
+            className="flex items-center justify-center rounded-full"
+            style={{
+              width: '28px',
+              height: '28px',
+              backgroundColor: '#1f2937',
+              border: '1px solid #374151',
+            }}
+            onClick={() => checkUpdate()}
+          >
+            <Download size={14} color={checking ? '#6b7280' : '#06b6d4'} />
+          </View>
         </View>
       </View>
 
-      {/* 玩家区域 - 顶部单行 */}
-      <View className="flex justify-around items-start px-2 pt-2 overflow-x-auto" style={{ minHeight: '80px' }}>
-        {gameState.players.map((p, i) => (
-          <PlayerAvatar
-            key={p.id}
-            player={p}
-            isCurrent={isMyTurn && gameState.currentPlayerIndex === i}
-            isMyTurn={isMyTurn}
-            isSelf={p.id === playerId}
-            aimingAtName={p.aimingAt ? (gameState.players.find(tp => tp.id === p.aimingAt)?.name || '') : ''}
-            onInvestigate={() => handleInvestigateSelect(p.id)}
-            onShoot={() => submitAction('shoot', p.id)}
-            onAim={() => submitAction('aim', p.id)}
-            onEquipUse={() => handleUseEquipment(p.id)}
-            onShowEquip={() => setEquipDetail(p.equipment)}
-          />
-        ))}
+      {/* 玩家区域 - 网格布局 + 连线 */}
+      <View id="player-grid" className="relative">
+        <View className="grid grid-cols-4 gap-3 px-3 pt-2 items-start">
+          {gameState.players.map((p, i) => (
+            <View key={p.id} id={`avatar-${i}`} className="flex justify-center">
+              <PlayerAvatar
+                player={p}
+                playerIndex={i}
+                isCurrent={gameState.currentPlayerIndex === i}
+                isMyTurn={isMyTurn}
+                isSelf={p.id === playerId}
+                myHasGun={myPlayer?.hasGun}
+                myHasAimingAt={!!myPlayer?.aimingAt}
+                onInvestigate={() => handleInvestigateSelect(p.id)}
+                onShoot={() => submitAction('shoot')}
+                onAim={() => submitAction('aim', p.id)}
+                onShowEquip={() => setEquipDetail(p.equipment)}
+              />
+            </View>
+          ))}
+        </View>
+        {/* 连线 overlay（瞄准 + 最近行动） */}
+        {linePositions.map((line, i) => {
+          const dx = line.to.x - line.from.x
+          const dy = line.to.y - line.from.y
+          const length = Math.sqrt(dx * dx + dy * dy)
+          const angle = Math.atan2(dy, dx) * 180 / Math.PI
+          return (
+            <View
+              key={i}
+              style={{
+                position: 'absolute',
+                left: `${line.from.x}px`,
+                top: `${line.from.y}px`,
+                width: `${length}px`,
+                height: '2px',
+                backgroundColor: line.dashed ? 'transparent' : line.color,
+                backgroundImage: line.dashed
+                  ? `repeating-linear-gradient(90deg, ${line.color} 0px, ${line.color} 6px, transparent 6px, transparent 12px)`
+                  : undefined,
+                transform: `rotate(${angle}deg)`,
+                transformOrigin: '0 50%',
+                pointerEvents: 'none',
+                zIndex: 10,
+              }}
+            >
+              {/* 箭头 */}
+              <View
+                style={{
+                  position: 'absolute',
+                  right: '-8px',
+                  top: '-4px',
+                  width: '0',
+                  height: '0',
+                  borderTop: '5px solid transparent',
+                  borderBottom: '5px solid transparent',
+                  borderLeft: `8px solid ${line.color}`,
+                }}
+              />
+              {/* 连线标签 */}
+              <Text
+                style={{
+                  position: 'absolute',
+                  left: `${length / 2 - 12}px`,
+                  top: '-18px',
+                  color: line.color,
+                  fontSize: '10px',
+                  whiteSpace: 'nowrap',
+                  transform: `rotate(${-angle}deg)`,
+                  transformOrigin: 'center',
+                }}
+              >
+                {line.label}
+              </Text>
+            </View>
+          )
+        })}
       </View>
 
-      {/* 中央区域 - 行动提示（可滚动） */}
-      <View className="flex-1 flex items-center justify-center px-4 overflow-y-auto">
-        {!isMyTurn ? (
-          <View className="text-center">
-            <Text className="block text-gray-400 text-lg">
-              {currentPlayer?.isBot ? '🤖' : '👤'} {currentPlayer?.name || '未知'} 行动中...
-            </Text>
-            <Text className="block text-gray-500 text-sm mt-2">请稍候</Text>
+      {/* 行动区域 - 始终显示 */}
+      <View className="flex-1 overflow-y-auto px-4 py-2">
+        {!isMyTurn && (
+          <View className="flex items-center justify-center gap-2 py-2 mb-2 rounded-lg" style={{ background: 'rgba(55, 65, 81, 0.5)' }}>
+            <Text className="block text-gray-400 text-xs">{currentPlayer?.name} 行动中，请稍候...</Text>
           </View>
-        ) : (
-          <View className="w-full max-w-md">
+        )}
+        <View className="w-full max-w-md mx-auto">
             {/* 身份显示 - 始终可见 */}
             <View className="bg-gray-800 rounded-xl p-3 mb-4">
               <View className="flex items-center gap-2 mb-2">
@@ -251,12 +527,20 @@ export default function GamePage() {
                     key={ci}
                     className="flex-1 rounded-lg p-2 text-center"
                     style={{
-                      backgroundColor: card.faceUp ? `${formatCardColor(card.type)}33` : '#374151',
+                      minHeight: '52px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: card.faceUp
+                        ? `linear-gradient(135deg, ${formatCardColor(card.type)}33 0%, ${formatCardColor(card.type)}11 100%)`
+                        : 'linear-gradient(135deg, #374151 0%, #1f2937 100%)',
                       border: `1px solid ${card.faceUp ? formatCardColor(card.type) : '#4b5563'}`,
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
                     }}
                   >
-                    <Text className="block text-xs" style={{
-                      color: card.faceUp ? formatCardColor(card.type) : '#9ca3af',
+                    <Text className="block text-xs font-semibold" style={{
+                      color: card.faceUp ? formatCardColor(card.type) : '#6b7280',
                     }}
                     >
                       {card.faceUp ? formatCardType(card.type) : `底细${ci + 1}`}
@@ -266,50 +550,72 @@ export default function GamePage() {
               </View>
             </View>
 
+            {/* 实时语音面板 */}
+            <VoicePanel trtc={trtc} isMyTurn={isMyTurn} currentPlayerName={currentPlayer?.name} />
+
             {/* 调查结果 */}
             {investResult && (
-              <View className="bg-gray-800 rounded-xl p-3 mb-4">
-                <Text className="block text-gray-400 text-xs mb-2">调查结果</Text>
-                <Text className="block text-lg" style={{ color: formatCardColor(investResult.cardType) }}>
+              <View className="rounded-xl p-3 mb-4" style={{
+                background: `linear-gradient(135deg, ${formatCardColor(investResult.cardType)}22 0%, ${formatCardColor(investResult.cardType)}08 100%)`,
+                border: `1px solid ${formatCardColor(investResult.cardType)}44`,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+              }}
+              >
+                <View className="flex items-center gap-2 mb-2">
+                  <Eye size={14} color={formatCardColor(investResult.cardType)} />
+                  <Text className="block text-gray-400 text-xs">调查结果</Text>
+                </View>
+                <Text className="block text-base" style={{ color: formatCardColor(investResult.cardType) }}>
                   {investResult.targetName} 的第{investResult.cardIndex + 1}张底细牌是：
-                  <Text className="font-bold">{formatCardType(investResult.cardType)}</Text>
+                  <Text className="font-bold text-lg">{formatCardType(investResult.cardType)}</Text>
                 </Text>
                 <Button
                   className="mt-2 w-full bg-gray-700 text-gray-300 text-xs"
-                  onClick={() => setInvestResult(null)}
+                  onClick={() => {
+                    dismissedInvestRef.current = `${investResult.targetName}-${investResult.cardIndex}-${investResult.cardType}`
+                    setInvestResult(null)
+                  }}
                 >
                   关闭
                 </Button>
               </View>
             )}
 
-            {/* 行动按钮 */}
-            <View className="grid grid-cols-2 gap-3">
-              <ActionBtn icon={<Eye size={18} color="#60a5fa" />} label="调查" onClick={() => setActionModal('investigate')} />
-              <ActionBtn icon={<Package size={18} color="#34d399" />} label="取得装备" onClick={() => submitAction('equip')} />
-              {myPlayer?.hasGun ? (
-                <ActionBtn icon={<Crosshair size={18} color="#f87171" />} label="射击" onClick={() => setActionModal('shoot')} />
-              ) : gameState.gunCount > 0 ? (
-                <ActionBtn icon={<Swords size={18} color="#fbbf24" />} label="装备手枪" onClick={() => setActionModal('aim')} />
-              ) : null}
-              {myPlayer?.hasGun && (
-                <ActionBtn icon={<Target size={18} color="#f472b6" />} label="瞄准" onClick={() => setActionModal('aim')} />
-              )}
-            </View>
+            {/* 行动按钮 - 仅自己回合显示 */}
+            {isMyTurn && (
+              <View className="grid grid-cols-2 gap-3">
+                <ActionBtn icon={<Eye size={18} color="#60a5fa" />} label="调查" onClick={() => setActionModal('investigate')} />
+                <ActionBtn icon={<Package size={18} color="#34d399" />} label="取得装备" onClick={() => submitAction('equip')} />
+                {myPlayer?.hasGun ? (
+                  <ActionBtn icon={<Crosshair size={18} color="#f87171" />} label="射击" onClick={() => setActionModal('shoot')} />
+                ) : gameState.gunCount > 0 ? (
+                  <ActionBtn icon={<Swords size={18} color="#fbbf24" />} label="装备手枪" onClick={() => setActionModal('aim')} />
+                ) : null}
+                {myPlayer?.hasGun && (
+                  <ActionBtn icon={<Target size={18} color="#f472b6" />} label="瞄准" onClick={() => setActionModal('aim')} />
+                )}
+                <ActionBtn icon={<SkipForward size={18} color="#9ca3af" />} label="结束回合" onClick={() => submitAction('endTurn')} />
+              </View>
+            )}
 
             {/* 装备牌 */}
             {myPlayer?.equipment && (
               <View className="mt-3 bg-gray-800 rounded-xl p-3">
                 <View className="flex items-center justify-between">
-                  <Text className="block text-gray-300 text-sm">
-                    🎒 {myPlayer.equipment?.name || '未知装备'}
-                  </Text>
-                  <Button
-                    className="bg-blue-600 text-white text-xs px-3 py-1"
-                    onClick={() => handleUseEquipment(myPlayer.equipment?.iconName || '')}
-                  >
-                    使用
-                  </Button>
+                  <View className="flex items-center gap-2">
+                    <Backpack size={16} color="#34d399" />
+                    <Text className="block text-gray-300 text-sm">
+                      {myPlayer.equipment?.name || '未知装备'}
+                    </Text>
+                  </View>
+                  {isMyTurn && (
+                    <Button
+                      className="bg-blue-600 text-white text-xs px-3 py-1"
+                      onClick={() => handleUseEquipment(myPlayer.equipment?.iconName || '')}
+                    >
+                      使用
+                    </Button>
+                  )}
                 </View>
                 <Text className="block text-gray-500 text-xs mt-1">
                   {myPlayer.equipment?.description || ''}
@@ -317,18 +623,32 @@ export default function GamePage() {
               </View>
             )}
           </View>
-        )}
       </View>
 
-      {/* 游戏日志 - 底部滚动条 */}
-      <View className="bg-gray-800 border-t border-gray-700 px-4 py-2 z-20" style={{ maxHeight: '80px' }}>
-        <View className="flex overflow-x-auto gap-3" style={{ whiteSpace: 'nowrap' }}>
-          {gameState.gameLog.slice(-8).map((log, i) => (
-            <Text key={i} className="block text-gray-400 text-xs flex-shrink-0">
-              {log.message}
-            </Text>
-          ))}
+      {/* 游戏日志 - 纵向滚动 + 复制 */}
+      <View className="bg-gray-800 border-t border-gray-700 px-4 py-2 z-20">
+        <View className="flex items-center justify-between mb-1">
+          <Text className="block text-gray-500 text-xs">游戏日志</Text>
+          <View
+            className="flex items-center gap-1 px-2 py-1 rounded bg-gray-700"
+            onClick={() => {
+              const logText = gameState.gameLog.map(l => l.message).join('\n')
+              Taro.setClipboardData({ data: logText })
+            }}
+          >
+            <Copy size={12} color="#9ca3af" />
+            <Text className="block text-gray-400 text-xs">复制</Text>
+          </View>
         </View>
+        <ScrollView scrollY style={{ maxHeight: '120px' }}>
+          <View className="flex flex-col gap-1">
+            {gameState.gameLog.slice(-20).map((log, i) => (
+              <Text key={i} className="block text-gray-400 text-xs">
+                {log.message}
+              </Text>
+            ))}
+          </View>
+        </ScrollView>
       </View>
 
       {/* 弹窗: 选择调查目标 */}
@@ -360,9 +680,9 @@ export default function GamePage() {
           </DialogHeader>
           <View className="flex flex-col gap-3">
             <Text className="block text-gray-400 text-sm">
-              选择你想查看的底细牌位置（1-3，从上到下）
+              选择你想查看的底细牌位置（从上到下）
             </Text>
-            {[0, 1, 2].map(ci => (
+            {Array.from({ length: gameState.players.find(p => p.id === investigateTarget)?.cards.length || 0 }, (_, i) => i).map(ci => (
               <Button
                 key={ci}
                 className="w-full bg-gray-700 text-gray-200"
@@ -377,23 +697,36 @@ export default function GamePage() {
         </DialogContent>
       </Dialog>
 
-      {/* 弹窗: 选择射击目标 */}
+      {/* 弹窗: 射击确认（向瞄准目标开枪） */}
       <Dialog open={actionModal === 'shoot'} onOpenChange={(v) => { if (!v) setActionModal(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>选择射击目标</DialogTitle>
+            <DialogTitle>射击确认</DialogTitle>
           </DialogHeader>
-          <View className="flex flex-col gap-3">
-            {alivePlayers.filter(p => p.id !== playerId).map(p => (
-              <Button
-                key={p.id}
-                className="w-full bg-gray-700 text-gray-200"
-                onClick={() => submitAction('shoot', p.id)}
-              >
-                🔫 {p.name}
-              </Button>
-            ))}
-          </View>
+          {(() => {
+            const aimTarget = myPlayer?.aimingAt ? gameState.players.find(p => p.id === myPlayer.aimingAt) : null
+            if (aimTarget) {
+              return (
+                <View className="flex flex-col items-center gap-4 py-4">
+                  <View className="w-16 h-16 rounded-full overflow-hidden border-2 border-amber-400">
+                    <Image src={getAvatarUrl(gameState.players.findIndex(p => p.id === aimTarget.id))} mode="aspectFill" style={{ width: '64px', height: '64px' }} />
+                  </View>
+                  <Text className="block text-gray-200 text-lg">{aimTarget.name}</Text>
+                  <Button
+                    className="w-full bg-red-600 text-white"
+                    onClick={() => submitAction('shoot')}
+                  >
+                    确认射击
+                  </Button>
+                </View>
+              )
+            }
+            return (
+              <View className="py-4 text-center">
+                <Text className="block text-gray-400">请先瞄准目标后再射击</Text>
+              </View>
+            )
+          })()}
         </DialogContent>
       </Dialog>
 
@@ -454,106 +787,224 @@ export default function GamePage() {
           </View>
         </DialogContent>
       </Dialog>
+
+      {/* APP 更新弹窗 */}
+      <UpdateDialog
+        open={showDialog}
+        onOpenChange={(o) => { if (!o) closeDialog() }}
+        updateInfo={updateInfo}
+        progress={progress}
+        status={status}
+        installing={installing}
+        onStartDownload={startDownload}
+        onInstall={installApk}
+        onClose={closeDialog}
+      />
     </View>
   )
 }
 
+// 玩家头像渐变色
+const AVATAR_GRADIENTS = [
+  'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+  'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+  'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+  'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+  'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+  'linear-gradient(135deg, #ff9a56 0%, #ff6a88 100%)',
+  'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)',
+  'linear-gradient(135deg, #5ee7df 0%, #b490ca 100%)',
+]
+
 // 玩家头像组件
 function PlayerAvatar({
   player,
+  playerIndex,
   isCurrent,
   isMyTurn,
   isSelf,
-  aimingAtName,
+  myHasGun,
+  myHasAimingAt,
   onInvestigate,
   onShoot,
   onAim,
   onShowEquip,
 }: {
   player: PlayerState
+  playerIndex: number
   isCurrent: boolean
   isMyTurn: boolean
   isSelf: boolean
-  aimingAtName?: string
+  myHasGun?: boolean
+  myHasAimingAt?: boolean
   onInvestigate: () => void
   onShoot: () => void
   onAim: () => void
-  onEquipUse: () => void
   onShowEquip: () => void
 }) {
-  if (!player.alive) {
+  const [confirmShoot, setConfirmShoot] = useState(false)
+  const [avatarLoaded, setAvatarLoaded] = useState(false)
+  const avatarUrl = getAvatarUrl(playerIndex)
+
+  if (player.eliminated) {
     return (
-      <View className="flex flex-col items-center opacity-40">
-        <View className="w-12 h-12 rounded-full bg-gray-600 flex items-center justify-center">
-          <Skull size={20} color="#6b7280" />
+      <View className="flex flex-col items-center opacity-30">
+        <View className="w-14 h-14 rounded-full overflow-hidden" style={{ border: '2px solid #6b7280' }}>
+          <Image src={avatarUrl} mode="aspectFill" style={{ width: '56px', height: '56px', filter: 'grayscale(100%)' }} />
         </View>
-        <Text className="block text-gray-500 text-xs mt-1">{player.name}</Text>
-        <Text className="block text-gray-600 text-xs">已淘汰</Text>
+        <Text className="block text-gray-500 text-xs mt-1" style={{ maxWidth: '72px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {player.name}
+        </Text>
       </View>
     )
   }
 
   return (
-    <View className="flex flex-col items-center" style={{ maxWidth: '80px' }}>
-      {/* 头像 */}
-      <View
-        className="w-12 h-12 rounded-full flex items-center justify-center relative"
-        style={{
-          backgroundColor: isCurrent ? '#f59e0b' : '#374151',
-          border: isCurrent ? '3px solid #fbbf24' : '2px solid #4b5563',
-          ...(isSelf ? { borderColor: '#3b82f6' } : {}),
-        }}
-      >
-        <Text className="block text-white font-bold text-lg">{player.name[0]}</Text>
+    <View className="flex flex-col items-center">
+      {/* 头像容器 - 固定 64px，包含环+头像+角标 */}
+      <View style={{ position: 'relative', width: '64px', height: '64px' }}>
+        {/* 当前回合旋转环 */}
+        {isCurrent && (
+          <View
+            className="absolute rounded-full animate-spin"
+            style={{
+              top: '0',
+              left: '0',
+              width: '64px',
+              height: '64px',
+              border: '3px solid transparent',
+              borderTopColor: '#fbbf24',
+              borderRightColor: '#fbbf24',
+              boxSizing: 'border-box',
+            }}
+          />
+        )}
+        {/* 自己的标识环 */}
+        {isSelf && !isCurrent && (
+          <View
+            className="absolute rounded-full"
+            style={{
+              top: '0',
+              left: '0',
+              width: '64px',
+              height: '64px',
+              border: '2px solid #3b82f6',
+              boxSizing: 'border-box',
+            }}
+          />
+        )}
+        {/* 头像图片 */}
+        <View
+          className="rounded-full overflow-hidden"
+          style={{
+            position: 'absolute',
+            top: '4px',
+            left: '4px',
+            width: '56px',
+            height: '56px',
+            boxShadow: isCurrent ? '0 0 12px rgba(251, 191, 36, 0.5)' : '0 2px 8px rgba(0,0,0,0.3)',
+          }}
+        >
+          {!avatarLoaded && (
+            <View style={{ width: '56px', height: '56px', background: AVATAR_GRADIENTS[playerIndex % AVATAR_GRADIENTS.length] }} />
+          )}
+          <Image
+            src={avatarUrl}
+            mode="aspectFill"
+            style={{ width: '56px', height: '56px', display: avatarLoaded ? 'block' : 'none' }}
+            onLoad={() => setAvatarLoaded(true)}
+          />
+        </View>
 
         {/* 手枪标记 */}
         {player.hasGun && (
-          <View className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
-            <Swords size={10} color="white" />
+          <View
+            className="absolute bg-red-500 rounded-full flex items-center justify-center z-10"
+            style={{ top: '2px', right: '2px', width: '20px', height: '20px', boxShadow: '0 1px 4px rgba(0,0,0,0.5)' }}
+          >
+            <Swords size={12} color="white" />
           </View>
         )}
 
         {/* 受伤标记 */}
         {player.wounded && (
-          <View className="absolute -top-1 -left-1 w-5 h-5 bg-yellow-500 rounded-full flex items-center justify-center">
-            <Shield size={10} color="white" />
+          <View
+            className="absolute bg-amber-500 rounded-full flex items-center justify-center z-10"
+            style={{ top: '2px', left: '2px', width: '20px', height: '20px', boxShadow: '0 1px 4px rgba(0,0,0,0.5)' }}
+          >
+            <Shield size={12} color="white" />
           </View>
         )}
 
         {/* 装备标记 */}
         {player.equipment && (
-          <View className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center" onClick={onShowEquip}>
-            <Package size={10} color="white" />
+          <View
+            className="absolute bg-emerald-500 rounded-full flex items-center justify-center z-10"
+            style={{ bottom: '2px', right: '2px', width: '20px', height: '20px', boxShadow: '0 1px 4px rgba(0,0,0,0.5)' }}
+            onClick={onShowEquip}
+          >
+            <Package size={12} color="white" />
           </View>
         )}
       </View>
 
       {/* 名字 */}
-      <Text className="block text-gray-300 text-xs mt-1 text-center" style={{ maxWidth: '70px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      <Text className="block text-gray-300 text-xs mt-1 text-center" style={{ maxWidth: '72px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {player.name}
       </Text>
 
-      {/* 瞄准指示 */}
-      <View className="flex items-center gap-1 mt-1">
-        {player.aimingAt && (
-          <Text className="block text-red-400 text-xs">→ {aimingAtName || player.aimingAt.slice(0, 4)}</Text>
+      {/* 行动按钮区域 - 始终占位保证所有头像对齐 */}
+      <View className={`flex gap-1 mt-1 ${isMyTurn ? 'min-h-8' : ''}`}>
+        {isMyTurn && !isSelf && (
+          <>
+            <View
+              className="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center"
+              style={{ boxShadow: '0 1px 3px rgba(37,99,235,0.4)' }}
+              onClick={onInvestigate}
+            >
+              <Eye size={13} color="white" />
+            </View>
+            {myHasGun && (
+              <View
+                className="w-7 h-7 rounded-md bg-red-600 flex items-center justify-center"
+                style={{ boxShadow: '0 1px 3px rgba(220,38,38,0.4)' }}
+                onClick={() => setConfirmShoot(true)}
+              >
+                <Crosshair size={13} color="white" />
+              </View>
+            )}
+            {myHasGun && !myHasAimingAt && (
+              <View
+                className="w-7 h-7 rounded-md bg-amber-600 flex items-center justify-center"
+                style={{ boxShadow: '0 1px 3px rgba(217,119,6,0.4)' }}
+                onClick={onAim}
+              >
+                <Target size={13} color="white" />
+              </View>
+            )}
+          </>
         )}
       </View>
 
-      {/* 行动按钮 (仅当前回合玩家可用) */}
-      {isMyTurn && !isSelf && (
-        <View className="flex gap-1 mt-1">
-          <View className="w-6 h-6 rounded bg-blue-600 flex items-center justify-center" onClick={onInvestigate}>
-            <Eye size={12} color="white" />
-          </View>
-          <View className="w-6 h-6 rounded bg-red-600 flex items-center justify-center" onClick={onShoot}>
-            <Crosshair size={12} color="white" />
-          </View>
-          <View className="w-6 h-6 rounded bg-yellow-600 flex items-center justify-center" onClick={onAim}>
-            <Target size={12} color="white" />
-          </View>
-        </View>
-      )}
+      {/* 射击确认弹窗 */}
+      <AlertDialog open={confirmShoot} onOpenChange={setConfirmShoot}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认射击</AlertDialogTitle>
+            <AlertDialogDescription>
+              <Text className="block text-sm text-muted-foreground">确认向瞄准目标开枪吗？</Text>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={onShoot}>
+              <Text className="block">确认射击</Text>
+            </AlertDialogAction>
+            <AlertDialogCancel>
+              <Text className="block">取消</Text>
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </View>
   )
 }
@@ -571,11 +1022,135 @@ function ActionBtn({
   return (
     <View
       className="bg-gray-800 rounded-xl py-4 px-3 flex flex-col items-center justify-center gap-2"
-      style={{ border: '1px solid #374151' }}
+      style={{ border: '1px solid #374151', boxShadow: '0 2px 6px rgba(0,0,0,0.2)' }}
       onClick={onClick}
     >
       {icon}
-      <Text className="block text-gray-300 text-sm">{label}</Text>
+      <Text className="block text-gray-300 text-sm font-medium">{label}</Text>
+    </View>
+  )
+}
+
+// 实时语音面板组件
+function VoicePanel({
+  trtc,
+  isMyTurn,
+  currentPlayerName,
+}: {
+  trtc: ReturnType<typeof useTRTC>
+  isMyTurn: boolean
+  currentPlayerName?: string
+}) {
+  // 小程序环境：不支持实时语音，显示提示
+  if (trtc.isWeapp) {
+    return (
+      <View className="rounded-xl p-3 mb-4 flex items-center gap-2" style={{
+        background: 'rgba(55, 65, 81, 0.5)',
+        border: '1px solid #4b5563',
+      }}>
+        <Text className="block text-gray-500 text-xs flex-1">
+          小程序环境不支持实时语音，请在安卓 App 中体验
+        </Text>
+      </View>
+    )
+  }
+
+  // 未加入房间
+  if (!trtc.joined) {
+    return (
+      <View className="rounded-xl p-3 mb-4 flex items-center justify-between" style={{
+        background: 'rgba(55, 65, 81, 0.5)',
+        border: '1px solid #4b5563',
+      }}>
+        <View className="flex items-center gap-2 flex-1">
+          <Text className="block text-gray-400 text-xs">
+            {trtc.error || '加入语音房间开启实时通话'}
+          </Text>
+        </View>
+        <Button
+          className="bg-blue-600 text-white text-xs px-3 py-1"
+          onClick={trtc.joinRoom}
+          disabled={trtc.connecting}
+        >
+          {trtc.connecting ? '连接中...' : '加入语音'}
+        </Button>
+      </View>
+    )
+  }
+
+  // 已加入房间
+  return (
+    <View className="rounded-xl p-3 mb-4" style={{
+      background: 'rgba(55, 65, 81, 0.7)',
+      border: `1px solid ${trtc.micOn && isMyTurn ? '#34d39966' : '#4b5563'}`,
+    }}>
+      <View className="flex items-center justify-between">
+        <View className="flex items-center gap-2 flex-1">
+          {/* 连接状态点 */}
+          <View
+            className="rounded-full"
+            style={{
+              width: '8px',
+              height: '8px',
+              backgroundColor: trtc.micOn && isMyTurn ? '#34d399' : '#9ca3af',
+              boxShadow: trtc.micOn && isMyTurn ? '0 0 6px rgba(52, 211, 153, 0.8)' : 'none',
+            }}
+          />
+          <View className="flex flex-col">
+            {isMyTurn ? (
+              <Text className="block text-xs font-medium" style={{
+                color: trtc.micOn ? '#34d399' : '#9ca3af',
+              }}>
+                {trtc.micOn ? '正在发言' : '麦克风已关闭'}
+              </Text>
+            ) : (
+              <Text className="block text-gray-400 text-xs">
+                {currentPlayerName} 发言中 · 静音收听
+              </Text>
+            )}
+            <Text className="block text-gray-500 text-xs mt-0.5">
+              {trtc.peerCount > 0 ? `${trtc.peerCount + 1} 人在线` : '仅你一人'}
+            </Text>
+          </View>
+        </View>
+
+        {/* 麦克风按钮 - 仅当前回合玩家可操作 */}
+        {isMyTurn ? (
+          <View
+            className="rounded-full flex items-center justify-center"
+            style={{
+              width: '44px',
+              height: '44px',
+              backgroundColor: trtc.micOn ? '#dc2626' : '#374151',
+              border: `1px solid ${trtc.micOn ? '#ef4444' : '#4b5563'}`,
+              boxShadow: trtc.micOn ? '0 2px 8px rgba(220, 38, 38, 0.5)' : 'none',
+            }}
+            onClick={trtc.toggleMic}
+          >
+            <Text className="block text-white text-lg">
+              {trtc.micOn ? '🎙' : '🔇'}
+            </Text>
+          </View>
+        ) : (
+          <View
+            className="rounded-full flex items-center justify-center"
+            style={{
+              width: '44px',
+              height: '44px',
+              backgroundColor: '#1f2937',
+              border: '1px solid #374151',
+              opacity: 0.5,
+            }}
+          >
+            <Text className="block text-gray-600 text-lg">🔇</Text>
+          </View>
+        )}
+      </View>
+
+      {/* 错误提示 */}
+      {trtc.error && (
+        <Text className="block text-red-400 text-xs mt-2">{trtc.error}</Text>
+      )}
     </View>
   )
 }

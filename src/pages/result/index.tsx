@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
-import { Swords, Users, House, RefreshCw, Shield, Skull } from 'lucide-react-taro'
+import { Swords, Users, House, RefreshCw, Shield, Skull, Trophy } from 'lucide-react-taro'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Network } from '@/network'
 
 interface FinalPlayer {
   id: string
   name: string
-  alive: boolean
   eliminated: boolean
   wounded: boolean
   faction: string
@@ -68,8 +68,8 @@ const ResultPage = () => {
     return (
       <View className="min-h-screen bg-[#0a0e1a] flex items-center justify-center">
         <View className="text-center">
-          <Text className="block text-3xl mb-4">🏆</Text>
-          <Text className="block text-gray-400 text-sm">加载结算...</Text>
+          <Trophy size={28} color="#8892a8" />
+          <Text className="block text-gray-400 text-sm mt-4">加载结算...</Text>
         </View>
       </View>
     )
@@ -117,25 +117,32 @@ const ResultPage = () => {
                       <View className="flex-1">
                         <View className="flex items-center gap-2 flex-wrap">
                           <Text className={`block text-sm font-medium ${p.eliminated ? 'text-gray-500 line-through' : 'text-white'}`}>{p.name}</Text>
-                          {isChief && <Text className="block text-xs text-yellow-400">✦ 探长</Text>}
-                          {isMastermind && <Text className="block text-xs text-red-400">♠ 主谋</Text>}
+                          {isChief && <Badge className="bg-yellow-500 bg-opacity-20 text-yellow-400 border-yellow-500 border-opacity-30"><Text>探长</Text></Badge>}
+                          {isMastermind && <Badge className="bg-red-500 bg-opacity-20 text-red-400 border-red-500 border-opacity-30"><Text>主谋</Text></Badge>}
                           {p.eliminated && <Text className="block text-xs text-gray-500">[淘汰]</Text>}
                           {p.isWinner && <Text className="block text-xs text-green-400">✓ 获胜</Text>}
                         </View>
-                        <Text className={`block text-xs mt-1 ${factionColor}`}>
-                          {p.faction === 'loyal' ? '🔵 忠诚阵营' : '🔴 变节阵营'}
-                        </Text>
+                        <View className="flex items-center gap-1 mt-1">
+                          {p.faction === 'loyal' ? (
+                            <View className="w-3 h-3 rounded-full bg-blue-500 inline-block" />
+                          ) : (
+                            <View className="w-3 h-3 rounded-full bg-red-500 inline-block" />
+                          )}
+                          <Text className={`block text-xs ${factionColor}`}>
+                            {p.faction === 'loyal' ? '忠诚阵营' : '变节阵营'}
+                          </Text>
+                        </View>
                         <View className="flex gap-1 mt-2 flex-wrap">
                           {p.cards.map((c, i) => {
                             const cardLabel = c.identity === 'chief' ? '探长' :
                               c.identity === 'mastermind' ? '主谋' :
                               c.identity === 'traitor' ? '变节' : '忠诚'
-                            const cardBg = c.identity === 'chief' ? { backgroundColor: 'rgba(234,179,8,0.3)' } :
-                              c.identity === 'mastermind' ? { backgroundColor: 'rgba(239,68,68,0.3)' } :
-                              c.identity === 'traitor' ? { backgroundColor: 'rgba(185,28,28,0.2)' } : { backgroundColor: 'rgba(37,99,235,0.3)' }
+                            const cardBg = c.identity === 'chief' ? { backgroundColor: 'rgba(234,179,8,0.3)', borderColor: 'rgba(234,179,8,0.5)' } :
+                              c.identity === 'mastermind' ? { backgroundColor: 'rgba(239,68,68,0.3)', borderColor: 'rgba(239,68,68,0.5)' } :
+                              c.identity === 'traitor' ? { backgroundColor: 'rgba(185,28,28,0.2)', borderColor: 'rgba(185,28,28,0.4)' } : { backgroundColor: 'rgba(37,99,235,0.3)', borderColor: 'rgba(37,99,235,0.5)' }
                             return (
                               <View key={i} className="rounded px-2 py-1 border"
-                                style={{borderColor: 'currentColor', opacity: 0.8, ...cardBg}}
+                                style={{opacity: 0.8, ...cardBg}}
                               >
                                 <Text className="text-xs">{cardLabel}</Text>
                               </View>
@@ -159,7 +166,7 @@ const ResultPage = () => {
             <House size={16} color="#ffffff" />
             <Text>返回首页</Text>
           </Button>
-          <Button className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl py-4 flex items-center justify-center gap-2"
+          <Button className="w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl py-4 flex items-center justify-center gap-2"
             onClick={() => Taro.redirectTo({ url: `/pages/room/index?roomCode=${roomCode}` })}
           >
             <RefreshCw size={16} color="#ffffff" />

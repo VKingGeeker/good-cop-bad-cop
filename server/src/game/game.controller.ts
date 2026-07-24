@@ -1,6 +1,7 @@
 import { Controller, Post, Get, Body, Param, Query, Logger, HttpCode } from '@nestjs/common';
 import { GameRoomService, GameRoom } from './game-room.service';
 import { GameLogicService } from './game-logic.service';
+import { TrtcService } from './trtc.service';
 
 @Controller('game')
 export class GameController {
@@ -9,15 +10,23 @@ export class GameController {
   constructor(
     private gameRoomService: GameRoomService,
     private gameLogicService: GameLogicService,
+    private trtcService: TrtcService,
   ) {}
 
   /** 创建房间 */
   @Post('room/create')
   @HttpCode(200)
-  async createRoom(@Body() body: { hostName: string; maxPlayers: number }) {
-    console.log(`[API] createRoom: hostName=${body.hostName}, maxPlayers=${body.maxPlayers}`);
+  async createRoom(@Body() body: { hostName: string; maxPlayers: number; password?: string; playerId?: string }) {
+    console.log(`[API] createRoom: hostName=${body.hostName}, maxPlayers=${body.maxPlayers}, hasPassword=${!!body.password}`);
+    // BUG-4: 校验最大玩家数 3~8
+    if (!body.maxPlayers || body.maxPlayers < 3 || body.maxPlayers > 8) {
+      return { code: -1, msg: '玩家数必须在3~8之间', data: null };
+    }
+    if (!body.hostName || !body.hostName.trim()) {
+      return { code: -1, msg: '房主昵称不能为空', data: null };
+    }
     try {
-      const result = await this.gameRoomService.createRoom(body.hostName, body.maxPlayers);
+      const result = await this.gameRoomService.createRoom(body.hostName, body.maxPlayers, body.password, body.playerId);
       return { code: 0, msg: 'success', data: result };
     } catch (error: any) {
       return { code: -1, msg: error.message || '创建房间失败', data: null };
@@ -27,13 +36,57 @@ export class GameController {
   /** 加入房间 */
   @Post('room/join')
   @HttpCode(200)
-  async joinRoom(@Body() body: { roomCode: string; playerName: string }) {
+  async joinRoom(@Body() body: { roomCode: string; playerName: string; password?: string; playerId?: string }) {
     console.log(`[API] joinRoom: roomCode=${body.roomCode}, playerName=${body.playerName}`);
+    // BUG-12: 校验玩家昵称非空
+    if (!body.playerName || !body.playerName.trim()) {
+      return { code: -1, msg: '玩家昵称不能为空', data: null };
+    }
     try {
-      const result = await this.gameRoomService.joinRoom(body.roomCode, body.playerName);
+      const result = await this.gameRoomService.joinRoom(body.roomCode, body.playerName, body.password, body.playerId);
       return { code: 0, msg: 'success', data: result };
     } catch (error: any) {
       return { code: -1, msg: error.message || '加入房间失败', data: null };
+    }
+  }
+
+  /** 获取房间列表 */
+  @Get('rooms')
+  async getRoomList() {
+    try {
+      const rooms = await this.gameRoomService.getRoomList();
+      return { code: 0, msg: 'success', data: rooms };
+    } catch (error: any) {
+      return { code: -1, msg: error.message || '获取房间列表失败', data: null };
+    }
+  }
+
+  /** 离开房间 */
+  @Post('room/:roomCode/leave')
+  @HttpCode(200)
+  async leaveRoom(@Param('roomCode') roomCode: string, @Body() body: { playerId: string }) {
+    console.log(`[API] leaveRoom: roomCode=${roomCode}, playerId=${body.playerId}`);
+    try {
+      await this.gameRoomService.leaveRoom(roomCode, body.playerId);
+      return { code: 0, msg: 'success', data: null };
+    } catch (error: any) {
+      return { code: -1, msg: error.message || '离开房间失败', data: null };
+    }
+  }
+
+  /** 踢出玩家（仅房主） */
+  @Post('room/:roomCode/kick')
+  @HttpCode(200)
+  async kickPlayer(
+    @Param('roomCode') roomCode: string,
+    @Body() body: { hostPlayerId: string; targetPlayerId: string },
+  ) {
+    console.log(`[API] kickPlayer: roomCode=${roomCode}, target=${body.targetPlayerId}`);
+    try {
+      const room = await this.gameRoomService.kickPlayer(roomCode, body.hostPlayerId, body.targetPlayerId);
+      return { code: 0, msg: 'success', data: room };
+    } catch (error: any) {
+      return { code: -1, msg: error.message || '踢出玩家失败', data: null };
     }
   }
 
@@ -49,7 +102,7 @@ export class GameController {
         status: room.status,
         hostPlayerId: room.hostPlayerId,
         maxPlayers: room.maxPlayers,
-        players: room.players.map(p => ({ id: p.id, name: p.name, isHost: p.isHost, joinedAt: p.joinedAt })),
+        players: room.players.map(p => ({ id: p.id, name: p.name, isHost: p.isHost, isBot: p.isBot, joinedAt: p.joinedAt })),
         gameState: room.gameState,
       }};
     } catch (error: any) {
@@ -64,11 +117,15 @@ export class GameController {
     console.log(`[API] startGame: roomCode=${roomCode}, playerId=${body.playerId}`);
     try {
       const room = await this.gameRoomService.getRoom(roomCode);
+      // BUG-3: 防止重复开始游戏
+      if (room.status === 'playing') {
+        return { code: -1, msg: '游戏已开始', data: null };
+      }
       if (room.hostPlayerId !== body.playerId) {
         return { code: -1, msg: '只有房主可以开始游戏', data: null };
       }
-      if (room.players.length < 2) {
-        return { code: -1, msg: '至少需要2名玩家', data: null };
+      if (room.players.length < 3) {
+        return { code: -1, msg: '至少需要3名玩家', data: null };
       }
       const gameState = await this.gameLogicService.startGame(roomCode);
       return { code: 0, msg: 'success', data: { gameState } };
@@ -83,6 +140,11 @@ export class GameController {
   async soloStartGame(@Param('roomCode') roomCode: string, @Body() body: { playerId: string }): Promise<any> {
     console.log(`[API] soloStartGame: roomCode=${roomCode}, playerId=${body.playerId}`);
     try {
+      const room = await this.gameRoomService.getRoom(roomCode);
+      // BUG-3: 防止重复开始游戏
+      if (room.status === 'playing') {
+        return { code: -1, msg: '游戏已开始', data: null };
+      }
       await this.gameRoomService.startSoloGame(roomCode, body.playerId);
       const gameState = await this.gameLogicService.startGame(roomCode);
       return { code: 0, msg: 'success', data: { gameState } };
@@ -140,6 +202,8 @@ export class GameController {
     @Body() body: { playerId: string; action: string; target?: string; cardIndex?: number; equipment?: string; [key: string]: any },
   ) {
     console.log(`[API] performAction: roomCode=${roomCode}, playerId=${body.playerId}, action=${body.action}`);
+    // BUG-5: 统一 use_equipment → useEquipment
+    if (body.action === 'use_equipment') body.action = 'useEquipment';
     try {
       // 构建payload
       const payload: any = body.payload || {};
@@ -155,7 +219,7 @@ export class GameController {
         // 从瞄准目标射击
       } else if (body.action === 'aim') {
         payload.targetId = body.target;
-      } else if (body.action === 'use_equipment' || body.action === 'useEquipment') {
+      } else if (body.action === 'useEquipment') {
         payload.effect = body.payload?.equipment || body.equipment;
         payload.data = { targetId: body.target, cardIndex: payload.cardIndex ?? body.cardIndex };
       } else if (body.action === 'flip_card') {
@@ -171,15 +235,15 @@ export class GameController {
 
       // 构造响应
       const response: any = { code: 0, msg: 'success', data: {} };
-      if (body.action === 'investigate' && gameState.investigationResult) {
+      // 从按玩家隔离的 investigationResults 中读取当前玩家的调查结果
+      const invResult = gameState.investigationResults?.[body.playerId];
+      if (body.action === 'investigate' && invResult) {
         response.data.result = {
-          card: gameState.investigationResult.cardType,
-          cardTypeName: gameState.investigationResult.cardTypeName,
-          targetName: gameState.investigationResult.targetName,
-          cardIndex: gameState.investigationResult.cardIndex,
+          card: invResult.cardType,
+          cardTypeName: invResult.cardTypeName,
+          targetName: invResult.targetName,
+          cardIndex: invResult.cardIndex,
         };
-        // 清除调查结果
-        gameState.investigationResult = null;
       }
       if (body.action === 'equip') {
         const currentPlayer = gameState.players[gameState.currentPlayerIndex];
@@ -229,7 +293,10 @@ export class GameController {
       });
       // 计算获胜者
       for (const p of players) {
-        if (gs.winner === 'solo') {
+        if (!gs.winner) {
+          // BUG-8: 游戏未结束时不应计算胜负
+          p.isWinner = false;
+        } else if (gs.winner === 'solo') {
           p.isWinner = p.cards.some((c: any) => c.identity === 'chief') && p.cards.some((c: any) => c.identity === 'mastermind');
         } else if (gs.winner === 'loyal') {
           p.isWinner = p.faction === 'loyal';
@@ -242,4 +309,42 @@ export class GameController {
       return { code: -1, msg: error.message || '获取结果失败', data: null };
     }
   }
+
+  /** 获取 TRTC 语音通话签名 */
+  @Get('room/:roomCode/trtc-sign')
+  async getTrtcSign(
+    @Param('roomCode') roomCode: string,
+    @Query('playerId') playerId: string,
+  ) {
+    try {
+      if (!this.trtcService.isConfigured()) {
+        return { code: -1, msg: 'TRTC 未配置，请在服务端设置 SDKAppID 和 SecretKey', data: null };
+      }
+      // 房间号转为数字（TRTC roomId 必须是整数）
+      const roomId = parseInt(roomCode, 10) || Math.abs(hashCode(roomCode));
+      const userSig = this.trtcService.generateUserSig(playerId, 3600);
+      return {
+        code: 0,
+        msg: 'success',
+        data: {
+          sdkAppId: this.trtcService.getSdkAppId(),
+          userSig,
+          userId: playerId,
+          roomId,
+        },
+      };
+    } catch (error: any) {
+      return { code: -1, msg: error.message || '获取语音签名失败', data: null };
+    }
+  }
+}
+
+/** 字符串转数字哈希（用于将非数字 roomCode 转为 TRTC roomId） */
+function hashCode(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return hash;
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { View, Text } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
-import { Users, Copy, Play, User, Clock, LogOut } from 'lucide-react-taro'
+import { Users, Copy, Play, User, Clock, LogOut, Search, CircleX, FlaskConical, UserMinus, House } from 'lucide-react-taro'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Network } from '@/network'
@@ -10,6 +10,7 @@ interface RoomPlayer {
   id: string
   name: string
   isHost: boolean
+  isBot?: boolean
   joinedAt: string
 }
 
@@ -25,23 +26,43 @@ const RoomPage = () => {
   const router = useRouter()
   const roomCode = router.params.roomCode || ''
   const playerId = Taro.getStorageSync('playerId') || ''
-  const isHost = Taro.getStorageSync('isHost') === 'true'
 
   const [room, setRoom] = useState<RoomData | null>(null)
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
   const [soloStarting, setSoloStarting] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [networkError, setNetworkError] = useState(false)
+
+  const isHost = room ? (playerId === room.hostPlayerId) : false
 
   const fetchRoom = async () => {
     try {
       const res = await Network.request({ url: `/api/game/room/${roomCode}` })
       const result = res.data as any
       if (result.code === 0) {
-        setRoom(result.data)
+        const roomData = result.data
+        // 游戏已开始，自动跳转游戏页
+        if (roomData.status === 'playing') {
+          Taro.redirectTo({ url: `/pages/game/index?roomCode=${roomCode}&playerId=${playerId}` })
+          return
+        }
+        // 被踢出检测：不在玩家列表中
+        if (roomData.players && !roomData.players.find((p: RoomPlayer) => p.id === playerId)) {
+          Taro.showToast({ title: '你已被移出房间', icon: 'none' })
+          Taro.removeStorageSync('roomCode')
+          Taro.removeStorageSync('playerId')
+          Taro.removeStorageSync('isHost')
+          setTimeout(() => Taro.redirectTo({ url: '/pages/index/index' }), 1500)
+          return
+        }
+        setRoom(roomData)
+        setNetworkError(false)
+      } else {
+        setNetworkError(true)
       }
     } catch {
-      // ignore polling errors
+      setNetworkError(true)
     } finally {
       setLoading(false)
     }
@@ -104,20 +125,67 @@ const RoomPage = () => {
     }
   }
 
-  const handleLeaveRoom = () => {
-    Taro.removeStorageSync('playerId')
-    Taro.removeStorageSync('roomCode')
-    Taro.removeStorageSync('isHost')
-    Taro.removeStorageSync('playerName')
+  const handleBackToHome = () => {
     Taro.redirectTo({ url: '/pages/index/index' })
+  }
+
+  const handleLeaveRoom = async () => {
+    const confirmed = await Taro.showModal({
+      title: '退出房间',
+      content: '退出后将从房间移除，需要重新加入。确定退出吗？',
+      confirmText: '退出',
+      confirmColor: '#ef4444',
+      cancelText: '取消',
+    })
+    if (!confirmed.confirm) return
+    try {
+      await Network.request({
+        url: '/api/game/room/' + roomCode + '/leave',
+        method: 'POST',
+        data: { playerId },
+      })
+    } catch {
+      // 即使 API 失败也允许离开
+    }
+    Taro.removeStorageSync('roomCode')
+    Taro.removeStorageSync('playerId')
+    Taro.removeStorageSync('isHost')
+    Taro.redirectTo({ url: '/pages/index/index' })
+  }
+
+  const handleKickPlayer = async (targetId: string, targetName: string) => {
+    const confirmed = await Taro.showModal({
+      title: '踢出玩家',
+      content: `确定要踢出 ${targetName} 吗？`,
+      confirmText: '踢出',
+      confirmColor: '#ef4444',
+      cancelText: '取消',
+    })
+    if (!confirmed.confirm) return
+    try {
+      const res = await Network.request({
+        url: '/api/game/room/' + roomCode + '/kick',
+        method: 'POST',
+        data: { hostPlayerId: playerId, targetPlayerId: targetId },
+      })
+      const result = res.data as any
+      if (result.code === 0) {
+        setRoom(result.data)
+        Taro.showToast({ title: '已踢出', icon: 'success' })
+      } else {
+        Taro.showToast({ title: result.msg || '踢出失败', icon: 'none' })
+      }
+    } catch (e: any) {
+      Taro.showToast({ title: e.message || '网络错误', icon: 'none' })
+    }
   }
 
   if (loading) {
     return (
       <View className="min-h-screen bg-[#0a0e1a] flex items-center justify-center">
         <View className="text-center">
-          <Text className="block text-3xl mb-4">🔍</Text>
-          <Text className="block text-gray-400 text-sm">正在加载房间...</Text>
+          <Search size={28} color="#8892a8" />
+          <Text className="block text-gray-400 text-sm mt-4">正在加载房间...</Text>
         </View>
       </View>
     )
@@ -127,8 +195,8 @@ const RoomPage = () => {
     return (
       <View className="min-h-screen bg-[#0a0e1a] flex items-center justify-center px-6">
         <View className="text-center">
-          <Text className="block text-3xl mb-4">❌</Text>
-          <Text className="block text-gray-400 text-sm mb-4">房间不存在或已关闭</Text>
+          <CircleX size={28} color="#8892a8" />
+          <Text className="block text-gray-400 text-sm mb-4 mt-4">房间不存在或已关闭</Text>
           <Button className="bg-blue-600 text-white rounded-xl px-6 py-2" onClick={() => Taro.redirectTo({ url: '/pages/index/index' })}>
             <Text>返回首页</Text>
           </Button>
@@ -141,13 +209,30 @@ const RoomPage = () => {
     <View className="min-h-screen bg-[#0a0e1a] flex flex-col">
       <View className="bg-[#0e1322] px-6 py-4 flex items-center justify-between">
         <Text className="block text-sm text-white font-bold">等待中</Text>
-        <Button variant="secondary" className="flex items-center gap-1 px-3 py-1 rounded-xl"
-          style={{backgroundColor: 'rgba(239,68,68,0.2)'}} onClick={handleLeaveRoom}
-        >
-          <LogOut size={14} color="#8892a8" />
-          <Text className="text-xs text-gray-400">退出</Text>
-        </Button>
+        <View className="flex flex-row items-center gap-2">
+          <Button variant="secondary" className="flex items-center gap-1 px-3 py-1 rounded-xl"
+            style={{backgroundColor: 'rgba(59,130,246,0.2)'}} onClick={handleBackToHome}
+          >
+            <House size={14} color="#60a5fa" />
+            <Text className="text-xs text-blue-400">主页</Text>
+          </Button>
+          <Button variant="secondary" className="flex items-center gap-1 px-3 py-1 rounded-xl"
+            style={{backgroundColor: 'rgba(239,68,68,0.2)'}} onClick={handleLeaveRoom}
+          >
+            <LogOut size={14} color="#ef4444" />
+            <Text className="text-xs text-red-400">退出</Text>
+          </Button>
+        </View>
       </View>
+
+      {networkError && (
+        <View className="mx-6 mt-4 px-4 py-3 rounded-xl flex items-center gap-2"
+          style={{backgroundColor: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)'}}
+        >
+          <CircleX size={16} color="#ef4444" />
+          <Text className="block text-sm text-red-400">网络连接中断，请检查网络</Text>
+        </View>
+      )}
 
       <View className="px-6 pt-6">
         <Card className="rounded-xl"
@@ -179,7 +264,7 @@ const RoomPage = () => {
               玩家 ({room?.players.length || 0}/{room?.maxPlayers || 0})
             </Text>
           </View>
-          {room && room.players.length >= 2 && (
+          {room && room.players.length >= 3 && (
             <Text className="block text-xs text-green-400">人数已够</Text>
           )}
         </View>
@@ -206,13 +291,23 @@ const RoomPage = () => {
                     <View className="flex items-center gap-2 mt-1">
                       {p.isHost && <Text className="block text-xs text-yellow-500">房主</Text>}
                       {p.id === playerId && <Text className="block text-xs text-blue-400">(你)</Text>}
+                      {p.isBot && <Text className="block text-xs text-gray-500">机器人</Text>}
                     </View>
                   </View>
-                  {p.id === playerId && (
+                  {p.id === playerId ? (
                     <View className="bg-green-600 rounded-full px-2 py-0">
                       <Text className="text-xs text-white">已加入</Text>
                     </View>
-                  )}
+                  ) : isHost && !p.isBot ? (
+                    <View
+                      onClick={() => handleKickPlayer(p.id, p.name)}
+                      className="flex items-center gap-1 rounded-lg px-2 py-1"
+                      style={{ backgroundColor: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)' }}
+                    >
+                      <UserMinus size={12} color="#ef4444" />
+                      <Text className="text-xs text-red-400">踢出</Text>
+                    </View>
+                  ) : null}
                 </View>
               </CardContent>
             </Card>
@@ -224,10 +319,10 @@ const RoomPage = () => {
         {isHost ? (
           <View className="flex flex-col gap-3">
             <Button
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl py-4 flex items-center justify-center gap-2"
+              className="w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl py-4 flex items-center justify-center gap-2"
               onClick={handleStartGame}
-              disabled={starting || (room?.players.length || 0) < 2}
-              style={{opacity: (starting || (room?.players.length || 0) < 2) ? 0.6 : 1}}
+              disabled={starting || (room?.players.length || 0) < 3}
+              style={{opacity: (starting || (room?.players.length || 0) < 3) ? 0.6 : 1}}
             >
               <Play size={18} color="#ffffff" />
               <Text className="font-bold">
@@ -240,8 +335,9 @@ const RoomPage = () => {
               onClick={handleSoloStart}
               disabled={soloStarting}
             >
+              <FlaskConical size={16} color="#34d399" />
               <Text className="font-bold text-emerald-400">
-                {soloStarting ? '正在启动...' : '🧪 单人测试（AI填充）'}
+                {soloStarting ? '正在启动...' : '单人测试（AI填充）'}
               </Text>
             </Button>
           </View>

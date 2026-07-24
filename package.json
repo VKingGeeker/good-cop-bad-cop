@@ -57,6 +57,7 @@
     "react-dom": "^18.0.0",
     "tailwind-merge": "^3.5.0",
     "tailwindcss-animate": "^1.0.7",
+    "trtc-js-sdk": "^4.15.21",
     "zustand": "^5.0.9"
   },
   "devDependencies": {
@@ -70,8 +71,8 @@
     "@tarojs/plugin-mini-ci": "^4.1.9",
     "@tarojs/vite-runner": "4.1.9",
     "@types/minimatch": "^5",
-    "@types/react": "^18.0.0",
     "@types/node": "^24",
+    "@types/react": "^18.0.0",
     "@vitejs/plugin-react": "^4.3.0",
     "babel-preset-taro": "4.1.9",
     "concurrently": "^9.2.1",

@@ -53,8 +53,17 @@ interface GameState {
   winner: 'loyal' | 'traitor' | 'solo' | null;
   /** 当前正在等待的设备玩家ID */
   currentPlayerDeviceId: string;
-  /** 调查结果临时存储 */
-  investigationResult: any | null;
+  /** 调查结果按玩家ID存储 */
+  investigationResults: Record<string, { targetName: string; cardIndex: number; cardType: string; cardTypeName: string }>;
+  /** 最近行动记录（用于前端绘制连线） */
+  lastActions: Array<{
+    actorId: string;
+    actorName: string;
+    action: string;
+    targetId: string;
+    targetName: string;
+    round: number;
+  }>;
 }
 
 const EQUIPMENT_LIST = [
@@ -143,7 +152,8 @@ export class GameLogicService {
       gameLog: [{ round: 0, message: `游戏开始！共有 ${playerCount} 名玩家。`, type: 'info' }],
       winner: null,
       currentPlayerDeviceId: playerStates[0].id,
-      investigationResult: null,
+      investigationResults: {},
+      lastActions: [],
     };
 
     // 保存到数据库，状态改为 playing
@@ -214,7 +224,7 @@ export class GameLogicService {
       throw new Error('不是你的回合');
     }
 
-    let newState = { ...gameState, players: [...gameState.players], gameLog: [...gameState.gameLog] };
+    let newState = { ...gameState, players: [...gameState.players], gameLog: [...gameState.gameLog], lastActions: [...(gameState.lastActions || [])] };
 
     switch (action) {
       case 'investigate':
@@ -253,17 +263,23 @@ export class GameLogicService {
     }
 
     // 自动结束回合（investigate/equip/gun/shoot/use_equipment 后自动结束）
-    const autoEndActions = ['investigate', 'equip', 'gun', 'shoot', 'use_equipment'];
+    const autoEndActions = ['investigate', 'equip', 'gun', 'shoot', 'useEquipment'];
     if (autoEndActions.includes(action) && !newState.winner) {
       newState = this.handleEndTurn(newState);
     }
 
-    // 保存到数据库
-    await this.gameRoomService.updateRoom(roomCode, { gameState: newState });
+    // 保存到数据库（游戏结束时同步房间状态为 ended，否则"再来一局"会因房间仍为 playing 而循环跳转）
+    await this.gameRoomService.updateRoom(roomCode, newState.winner
+      ? { gameState: newState, status: 'ended' }
+      : { gameState: newState });
 
     // 自动处理后续机器人的回合（processBotTurns 内部会自己保存到数据库）
     if (!newState.winner) {
       newState = await this.processBotTurns(roomCode, newState);
+      // 机器人可能导致游戏结束，兜底持久化最终状态与房间状态
+      if (newState.winner) {
+        await this.gameRoomService.updateRoom(roomCode, { gameState: newState, status: 'ended' });
+      }
     }
 
     return newState;
@@ -271,69 +287,92 @@ export class GameLogicService {
 
   /** 自动处理机器人回合 */
   private async processBotTurns(roomCode: string, state: GameState): Promise<GameState> {
-    let currentState = { ...state, players: [...state.players], gameLog: [...state.gameLog] };
-    const maxBots = 10; // 防止无限循环
+    let currentState = { ...state, players: [...state.players], gameLog: [...state.gameLog], lastActions: [...(state.lastActions || [])] };
+    let safetyCounter = 0;
+    const maxIterations = 100;
 
-    for (let i = 0; i < maxBots; i++) {
+    while (!currentState.winner && safetyCounter < maxIterations) {
+      safetyCounter++;
       const currentPlayer = currentState.players[currentState.currentPlayerIndex];
-      if (!currentPlayer.isBot || currentState.winner) break;
 
-      // 机器人随机选择行动
+      // 已淘汰玩家自动跳过（解决人类被淘汰后游戏死锁）
+      if (currentPlayer.eliminated) {
+        currentState = this.handleEndTurn(currentState);
+        await this.gameRoomService.updateRoom(roomCode, { gameState: currentState });
+        continue;
+      }
+
+      // 存活的人类玩家回合，停止等待人类行动
+      if (!currentPlayer.isBot) break;
+
+      // 机器人选择行动
       const actions = this.getBotActions(currentState, currentPlayer);
-      if (actions.length === 0) break;
+      let newState = { ...currentState, players: [...currentState.players], gameLog: [...currentState.gameLog], lastActions: [...(currentState.lastActions || [])] };
+
+      if (actions.length === 0) {
+        currentState = this.handleEndTurn(newState);
+        await this.gameRoomService.updateRoom(roomCode, { gameState: currentState });
+        continue;
+      }
 
       const pickedAction = actions[Math.floor(Math.random() * actions.length)];
-      let newState = { ...currentState, players: [...currentState.players], gameLog: [...currentState.gameLog] };
 
-      switch (pickedAction.type) {
-        case 'investigate': {
-          newState = this.handleInvestigate(newState, pickedAction.payload);
-          this.addBotLog(newState, currentPlayer.name, `调查了 ${pickedAction.payload.targetName}`);
-          break;
+      try {
+        switch (pickedAction.type) {
+          case 'investigate': {
+            newState = this.handleInvestigate(newState, pickedAction.payload);
+            this.addBotLog(newState, currentPlayer.name, `调查了 ${pickedAction.payload.targetName}`);
+            break;
+          }
+          case 'equip': {
+            newState = this.handleEquip(newState, pickedAction.payload);
+            this.addBotLog(newState, currentPlayer.name, '抽取了装备');
+            break;
+          }
+          case 'gun': {
+            newState = this.handleGun(newState, pickedAction.payload);
+            this.addBotLog(newState, currentPlayer.name, '装备了手枪');
+            break;
+          }
+          case 'shoot': {
+            newState = this.handleShoot(newState, {});
+            this.addBotLog(newState, currentPlayer.name, '开枪射击！');
+            break;
+          }
+          case 'aim': {
+            newState = this.handleAim(newState, pickedAction.payload);
+            this.addBotLog(newState, currentPlayer.name, '瞄准了目标');
+            break;
+          }
+          case 'useEquipment': {
+            newState = this.handleUseEquipment(newState, pickedAction.payload);
+            this.addBotLog(newState, currentPlayer.name, `使用了 ${pickedAction.payload.effect}`);
+            break;
+          }
         }
-        case 'equip': {
-          newState = this.handleEquip(newState, pickedAction.payload);
-          this.addBotLog(newState, currentPlayer.name, '抽取了装备');
-          break;
+
+        // 检查胜负
+        if (!newState.winner) {
+          const winResult = this.checkWin(newState.players);
+          if (winResult.winner) {
+            newState.winner = winResult.winner;
+            newState.gameLog.push({ round: newState.round, message: winResult.message, type: 'result' });
+            newState.phase = 'result';
+            currentState = newState;
+            // 机器人获胜时立即持久化（break 会跳过下方的 updateRoom）
+            await this.gameRoomService.updateRoom(roomCode, { gameState: currentState, status: 'ended' });
+            break;
+          }
         }
-        case 'gun': {
-          newState = this.handleGun(newState, pickedAction.payload);
-          this.addBotLog(newState, currentPlayer.name, '装备了手枪');
-          break;
-        }
-        case 'shoot': {
-          newState = this.handleShoot(newState, {});
-          this.addBotLog(newState, currentPlayer.name, '开枪射击！');
-          break;
-        }
-        case 'aim': {
-          newState = this.handleAim(newState, pickedAction.payload);
-          break;
-        }
-        case 'useEquipment': {
-          newState = this.handleUseEquipment(newState, pickedAction.payload);
-          this.addBotLog(newState, currentPlayer.name, `使用了 ${pickedAction.payload.effect}`);
-          break;
-        }
+
+        // 结束机器人回合
+        currentState = this.handleEndTurn(newState);
+      } catch (e) {
+        // 单个机器人行动失败时跳过该回合，避免异常导致游戏卡死
+        this.logger.warn(`机器人 ${currentPlayer.name} 执行 ${pickedAction.type} 失败: ${e?.message}，跳过回合`);
+        currentState = this.handleEndTurn(newState);
       }
-
-      // 检查胜负
-      if (!newState.winner) {
-        const winResult = this.checkWin(newState.players);
-        if (winResult.winner) {
-          newState.winner = winResult.winner;
-          newState.gameLog.push({ round: newState.round, message: winResult.message, type: 'result' });
-          newState.phase = 'result';
-          currentState = newState;
-          break;
-        }
-      }
-
-      // 结束机器人回合
-      currentState = this.handleEndTurn(newState);
       await this.gameRoomService.updateRoom(roomCode, { gameState: currentState });
-
-      if (currentState.winner) break;
     }
 
     return currentState;
@@ -342,7 +381,7 @@ export class GameLogicService {
   private addBotLog(state: GameState, botName: string, action: string) {
     state.gameLog.push({
       round: state.round,
-      message: `🤖 ${botName} ${action}`,
+      message: `${botName} ${action}`,
       type: 'bot',
     });
   }
@@ -378,13 +417,15 @@ export class GameLogicService {
       actions.push({ type: 'gun', payload: { flipCardIndex: Math.floor(Math.random() * 3), aimTargetId: aimTarget?.id } });
     }
 
-    // 射击行动
-    if (player.hasGun && player.aimingAt) {
+    // 射击行动（仅在瞄准目标仍存活时）
+    const aimTarget = player.aimingAt ? state.players.find(p => p.id === player.aimingAt) : null;
+    const hasValidAim = aimTarget && !aimTarget.eliminated;
+    if (player.hasGun && hasValidAim) {
       actions.push({ type: 'shoot', payload: {} });
     }
 
-    // 瞄准行动
-    if (player.hasGun && !player.aimingAt && aliveOthers.length > 0) {
+    // 瞄准行动（有枪但无有效瞄准目标时重新瞄准）
+    if (player.hasGun && !hasValidAim && aliveOthers.length > 0) {
       const target = aliveEnemies.length > 0
         ? aliveEnemies[Math.floor(Math.random() * aliveEnemies.length)]
         : aliveOthers[Math.floor(Math.random() * aliveOthers.length)];
@@ -394,11 +435,22 @@ export class GameLogicService {
     return actions;
   }
 
+  /** 记录最近行动（用于前端连线绘制） */
+  private pushLastAction(state: GameState, actorId: string, actorName: string, action: string, targetId: string, targetName: string) {
+    if (!state.lastActions) state.lastActions = [];
+    state.lastActions.push({ actorId, actorName, action, targetId, targetName, round: state.round });
+    // 只保留最近5条
+    if (state.lastActions.length > 5) state.lastActions = state.lastActions.slice(-5);
+  }
+
   private handleInvestigate(state: GameState, payload: any): GameState {
     const { targetId, cardIndex } = payload;
     const players = [...state.players];
     const target = players.find(p => p.id === targetId);
     if (!target) throw new Error('目标玩家不存在');
+    if (targetId === state.players[state.currentPlayerIndex].id) {
+      throw new Error('不能调查自己');
+    }
 
     const card = target.cards[cardIndex];
     if (!card) throw new Error('底细牌不存在');
@@ -411,13 +463,16 @@ export class GameLogicService {
       type: 'action',
     });
 
-    // 存储调查结果（仅调查者可见）
-    state.investigationResult = {
+    // 存储调查结果（按调查者ID隔离，仅调查者可见）
+    const investigatorId = state.players[state.currentPlayerIndex].id;
+    state.investigationResults[investigatorId] = {
       targetName: target.name,
       cardIndex,
       cardType: card.type,
       cardTypeName,
     };
+
+    this.pushLastAction(state, investigatorId, state.players[state.currentPlayerIndex].name, 'investigate', targetId, target.name);
 
     return state;
   }
@@ -460,6 +515,9 @@ export class GameLogicService {
 
     // 瞄准目标
     if (aimTargetId) {
+      const aimTarget = players.find(p => p.id === aimTargetId);
+      if (!aimTarget || aimTarget.eliminated) throw new Error('瞄准目标无效');
+      if (aimTargetId === player.id) throw new Error('不能瞄准自己');
       player.aimingAt = aimTargetId;
     }
 
@@ -472,6 +530,10 @@ export class GameLogicService {
       type: 'action',
     });
 
+    if (aimTargetId) {
+      this.pushLastAction(state, player.id, player.name, 'gun', aimTargetId, players.find(p => p.id === aimTargetId)?.name || '');
+    }
+
     return state;
   }
 
@@ -479,9 +541,18 @@ export class GameLogicService {
     const { targetId } = payload;
     const players = [...state.players];
     const player = { ...players[state.currentPlayerIndex] };
+    const target = players.find(p => p.id === targetId);
+    if (!target || target.eliminated) throw new Error('瞄准目标无效');
+    if (targetId === player.id) throw new Error('不能瞄准自己');
     player.aimingAt = targetId;
     players[state.currentPlayerIndex] = player;
     state.players = players;
+    state.gameLog.push({
+      round: state.round,
+      message: `🎯 ${player.name} 瞄准了 ${target.name}`,
+      type: 'action',
+    });
+    this.pushLastAction(state, player.id, player.name, 'aim', targetId, target.name);
     return state;
   }
 
@@ -493,6 +564,9 @@ export class GameLogicService {
 
     const targetIndex = players.findIndex(p => p.id === targetId);
     const target = { ...players[targetIndex] };
+    if (target.eliminated) {
+      throw new Error('目标已被淘汰');
+    }
 
     // 枪放回中央
     shooter.hasGun = false;
@@ -504,6 +578,7 @@ export class GameLogicService {
       message: `💥 ${shooter.name} 向 ${target.name} 射击！`,
       type: 'action',
     });
+    this.pushLastAction(state, shooter.id, shooter.name, 'shoot', targetId, target.name);
 
     // 处理伤害
     const isLeader = target.cards.some(c => c.type === 'chief' || c.type === 'mastermind');
@@ -512,9 +587,9 @@ export class GameLogicService {
       // 非首领直接淘汰
       target.eliminated = true;
       target.cards = target.cards.map(c => ({ ...c, faceUp: true }));
+      if (target.hasGun) state.gunCount++;
       target.hasGun = false;
       target.equipment = null;
-      if (target.hasGun) state.gunCount++;
       state.gameLog.push({
         round: state.round,
         message: `☠️ ${target.name} 被淘汰！`,
@@ -568,6 +643,8 @@ export class GameLogicService {
       if (i === nextIndex) return { ...p, silenced: false };
       return p;
     });
+
+    // 调查结果不再在 endTurn 时清除，保留至玩家下次调查时覆写或游戏结束
 
     state.currentPlayerIndex = nextIndex;
     state.round = newRound;
@@ -742,6 +819,13 @@ export class GameLogicService {
     players[state.currentPlayerIndex] = player;
     state.players = players;
 
+    // 记录有目标的装备使用行动（用于前端连线）
+    const equipTargetId = data?.targetId;
+    if (equipTargetId) {
+      const equipTarget = players.find(p => p.id === equipTargetId);
+      this.pushLastAction(state, player.id, player.name, 'useEquipment', equipTargetId, equipTarget?.name || '');
+    }
+
     return state;
   }
 
@@ -776,10 +860,10 @@ export class GameLogicService {
       round: gameState.round,
       gameLog: gameState.gameLog,
       winner: gameState.winner,
-      // 调查结果仅当前行动者可见
-      investigationResult: gameState.currentPlayerDeviceId === viewerPlayerId
-        ? gameState.investigationResult
-        : null,
+      // 调查结果按玩家ID隔离，仅调查者本人可见
+      investigationResult: gameState.investigationResults?.[viewerPlayerId] || null,
+      // 最近行动记录（用于前端连线绘制）
+      lastActions: gameState.lastActions || [],
     };
   }
 
