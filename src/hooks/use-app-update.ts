@@ -5,10 +5,17 @@ import { APP_VERSION } from '@/config/app-version'
 
 export type DownloadStatus = 'idle' | 'downloading' | 'paused' | 'completed' | 'error'
 
+export interface VersionEntry {
+  version: string
+  buildTime: string
+  changelog: string
+}
+
 export interface UpdateInfo {
   version: string
   buildTime: string
   changelog: string
+  versions: VersionEntry[]
   apkSize: number
   downloadUrl: string
 }
@@ -19,6 +26,24 @@ const STORAGE_COMPLETE = 'updateDownloadComplete'
 const STORAGE_DOWNLOADED_BYTES = 'updateDownloadedBytes'
 const STORAGE_TOTAL_SIZE = 'updateTotalSize'
 const STORAGE_DOWNLOADED_VERSION = 'updateDownloadedVersion' // 记录下载完成时的版本号
+
+/**
+ * 比较语义版本号：返回 true 表示 remote 比 local 新
+ * 如 isNewerVersion('1.0.10', '1.0.9') → true
+ *    isNewerVersion('1.0.9', '1.0.10') → false
+ */
+const isNewerVersion = (remote: string, local: string): boolean => {
+  const r = remote.split('.').map(Number)
+  const l = local.split('.').map(Number)
+  const len = Math.max(r.length, l.length)
+  for (let i = 0; i < len; i++) {
+    const rv = r[i] || 0
+    const lv = l[i] || 0
+    if (rv > lv) return true
+    if (rv < lv) return false
+  }
+  return false
+}
 
 /**
  * 检测是否在 Capacitor 原生环境
@@ -134,13 +159,13 @@ export function useAppUpdate() {
   /** 静默检查更新（仅设置 hasUpdate 标记，不弹窗不提示） */
   const silentCheckUpdate = useCallback(async () => {
     try {
-      const res = await Network.request({ url: '/api/app/version' })
+      const res = await Network.request({ url: `/api/app/version?fromVersion=${APP_VERSION}` })
       const result = res.data as any
       if (result.code === 0 && result.data) {
         const info = result.data as UpdateInfo
         setUpdateInfo(info)
         downloadState.totalSize = info.apkSize
-        if (info.version && info.version !== APP_VERSION) {
+        if (info.version && isNewerVersion(info.version, APP_VERSION)) {
           setHasUpdate(true)
           // 服务器有新版本：检查本地下载的版本是否匹配
           const savedVersion = Taro.getStorageSync(STORAGE_DOWNLOADED_VERSION) as string
@@ -167,14 +192,14 @@ export function useAppUpdate() {
   const checkUpdate = useCallback(async () => {
     setChecking(true)
     try {
-      const res = await Network.request({ url: '/api/app/version' })
+      const res = await Network.request({ url: `/api/app/version?fromVersion=${APP_VERSION}` })
       const result = res.data as any
       if (result.code === 0 && result.data) {
         const info = result.data as UpdateInfo
         setUpdateInfo(info)
         downloadState.totalSize = info.apkSize
 
-        if (info.version && info.version !== APP_VERSION) {
+        if (info.version && isNewerVersion(info.version, APP_VERSION)) {
           setHasUpdate(true)
           // 服务器有新版本：检查本地下载的版本是否匹配
           const savedVersion = Taro.getStorageSync(STORAGE_DOWNLOADED_VERSION) as string
@@ -503,6 +528,20 @@ export function useAppUpdate() {
     setStatus('idle')
   }, [])
 
+  /** 获取所有版本历史日志（供首页查看历史更新） */
+  const getChangelog = useCallback(async (): Promise<VersionEntry[]> => {
+    try {
+      const res = await Network.request({ url: '/api/app/changelog' })
+      const result = res.data as any
+      if (result.code === 0 && result.data) {
+        return result.data as VersionEntry[]
+      }
+      return []
+    } catch {
+      return []
+    }
+  }, [])
+
   return {
     updateInfo,
     progress,
@@ -518,5 +557,6 @@ export function useAppUpdate() {
     closeDialog,
     resetDownload,
     setShowDialog,
+    getChangelog,
   }
 }

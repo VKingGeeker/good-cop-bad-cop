@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">无间疑云</string>
+    <string name="title_activity_main">无间疑云</string>
+    <string name="package_name">com.goodcopbadcop.app</string>
+    <string name="custom_url_scheme">com.goodcopbadcop.app</string>
+</resources>

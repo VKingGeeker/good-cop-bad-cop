@@ -1,4 +1,4 @@
-import { Controller, Get, Req, Res, Logger } from '@nestjs/common';
+import { Controller, Get, Query, Req, Res, Logger } from '@nestjs/common';
 import { Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -7,32 +7,129 @@ const APK_DIR = process.env.APK_DIR || '/home/ubuntu/apks';
 const APK_PATH = path.join(APK_DIR, 'app-debug.apk');
 const VERSION_PATH = path.join(APK_DIR, 'version.json');
 
+interface VersionEntry {
+  version: string;
+  buildTime: string;
+  changelog: string;
+}
+
+/**
+ * 比较语义版本号：返回 1 表示 a > b，-1 表示 a < b，0 表示相等
+ */
+function compareVersion(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const va = pa[i] || 0;
+    const vb = pb[i] || 0;
+    if (va > vb) return 1;
+    if (va < vb) return -1;
+  }
+  return 0;
+}
+
 @Controller('app')
 export class AppUpdateController {
   private readonly logger = new Logger(AppUpdateController.name);
 
-  /** 获取最新版本信息 */
+  /** 读取版本历史数组 */
+  private readVersionHistory(): VersionEntry[] {
+    if (!fs.existsSync(VERSION_PATH)) return [];
+    const raw = JSON.parse(fs.readFileSync(VERSION_PATH, 'utf-8'));
+    // 兼容旧格式（单个对象）
+    if (Array.isArray(raw)) return raw as VersionEntry[];
+    return [raw as VersionEntry];
+  }
+
+  /**
+   * 获取最新版本信息
+   * 支持 fromVersion 查询参数，返回从该版本之后所有版本的更新日志
+   * 如 GET /api/app/version?fromVersion=1.0.9
+   */
   @Get('version')
-  async getVersion() {
+  async getVersion(@Query('fromVersion') fromVersion?: string) {
     try {
       const apkExists = fs.existsSync(APK_PATH);
-      let versionData = { version: '0.0.0', buildTime: '', changelog: '' };
-      if (fs.existsSync(VERSION_PATH)) {
-        versionData = JSON.parse(fs.readFileSync(VERSION_PATH, 'utf-8'));
+      const history = this.readVersionHistory();
+
+      if (history.length === 0) {
+        return {
+          code: 0,
+          msg: 'success',
+          data: {
+            version: '0.0.0',
+            buildTime: '',
+            changelog: '',
+            versions: [],
+            apkSize: apkExists ? fs.statSync(APK_PATH).size : 0,
+            downloadUrl: apkExists ? '/api/app/download' : null,
+          },
+        };
       }
+
+      // 最新版本 = 数组最后一个元素
+      const latest = history[history.length - 1];
+
+      // 筛选 fromVersion 之后的版本（用于跨版本更新日志）
+      let versions: VersionEntry[] = [];
+      if (fromVersion) {
+        versions = history.filter(
+          (v) => compareVersion(v.version, fromVersion) > 0,
+        );
+      } else {
+        versions = [latest];
+      }
+
+      // 合并所有版本的 changelog
+      const mergedChangelog = versions
+        .map((v) => v.changelog || '')
+        .filter((c) => c.trim())
+        .join('\n');
+
       return {
         code: 0,
         msg: 'success',
         data: {
-          version: versionData.version,
-          buildTime: versionData.buildTime,
-          changelog: versionData.changelog || '',
+          version: latest.version,
+          buildTime: latest.buildTime,
+          changelog: mergedChangelog,
+          versions: versions.map((v) => ({
+            version: v.version,
+            buildTime: v.buildTime,
+            changelog: v.changelog || '',
+          })),
           apkSize: apkExists ? fs.statSync(APK_PATH).size : 0,
           downloadUrl: apkExists ? '/api/app/download' : null,
         },
       };
     } catch (error) {
       return { code: -1, msg: error.message || '获取版本失败', data: null };
+    }
+  }
+
+  /**
+   * 获取所有版本历史（供客户端查看历史更新日志）
+   */
+  @Get('changelog')
+  async getChangelog() {
+    try {
+      const history = this.readVersionHistory();
+      // 按版本号降序返回（最新在最前）
+      const sorted = [...history].sort((a, b) =>
+        compareVersion(b.version, a.version),
+      );
+      return {
+        code: 0,
+        msg: 'success',
+        data: sorted.map((v) => ({
+          version: v.version,
+          buildTime: v.buildTime,
+          changelog: v.changelog || '',
+        })),
+      };
+    } catch (error) {
+      return { code: -1, msg: error.message || '获取更新日志失败', data: null };
     }
   }
 

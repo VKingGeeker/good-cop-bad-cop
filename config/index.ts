@@ -187,7 +187,7 @@ export default defineConfig<'vite'>(async (merge, _env) => {
         open: false,
         proxy: {
           '/api': {
-            target: 'http://localhost:3000',
+            target: 'http://82.157.199.141:3000',
             changeOrigin: true,
           },
         },

@@ -120,13 +120,13 @@ export class GameRoomService {
         host_player_id: playerId,
         max_players: maxPlayers,
         players: [player],
-        game_state: null,
+        game_state: password ? { password } : null,
         password: password || null,
       })
       .select()
       .single();
 
-    // 如果 password 列不存在，去掉 password 重试
+    // 如果 password 列不存在，去掉 password 重试（密码已存入 game_state）
     if (error && error.message && error.message.includes('password')) {
       const { data: retryData, error: retryError } = await getSupabaseClient()
         .from('game_rooms')
@@ -136,7 +136,7 @@ export class GameRoomService {
           host_player_id: playerId,
           max_players: maxPlayers,
           players: [player],
-          game_state: null,
+          game_state: password ? { password } : null,
         })
         .select()
         .single();
@@ -178,8 +178,9 @@ export class GameRoomService {
       }
     }
 
-    // 检查密码（在移除玩家之前验证）
-    if (room.password && room.password !== (password || '')) {
+    // 检查密码（在移除玩家之前验证）— 兼容 password 列和 game_state 存储
+    const roomPassword = room.password || room.game_state?.password;
+    if (roomPassword && roomPassword !== (password || '')) {
       throw new Error('房间密码错误');
     }
 
@@ -343,7 +344,7 @@ export class GameRoomService {
         hostName: host?.name || '未知',
         playerCount: players.length,
         maxPlayers: row.max_players,
-        hasPassword: !!row.password,
+        hasPassword: !!(row.password || row.game_state?.password),
         createdAt: row.created_at,
       };
     });
@@ -454,7 +455,7 @@ export class GameRoomService {
       maxPlayers: data.max_players,
       players: data.players || [],
       gameState: data.game_state,
-      password: data.password,
+      password: data.password || data.game_state?.password || null,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     };

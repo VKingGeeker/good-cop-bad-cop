@@ -10,6 +10,7 @@ import { Crosshair, Target, Shield, Swords, Eye, Package, ChevronRight, Backpack
 import { useTRTC } from '@/hooks/use-trtc'
 import { useAppUpdate } from '@/hooks/use-app-update'
 import { UpdateDialog } from '@/components/update/update-dialog'
+import { FloatingLogButton } from '@/components/floating-log-button'
 
 // 头像占位图 prompt 列表（后续可替换为实际素材）
 const AVATAR_PROMPTS = [
@@ -800,6 +801,9 @@ export default function GamePage() {
         onInstall={installApk}
         onClose={closeDialog}
       />
+
+      {/* 悬浮日志按钮 */}
+      <FloatingLogButton />
     </View>
   )
 }

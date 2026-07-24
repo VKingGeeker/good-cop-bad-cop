@@ -10,6 +10,7 @@ export default defineAppConfig({
     navigationBarBackgroundColor: '#0a0e1a',
     navigationBarTitleText: '无间疑云',
     navigationBarTextStyle: 'white',
+    navigationStyle: 'custom',
     backgroundColor: '#0a0e1a',
   },
 })

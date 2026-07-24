@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Download, Package, CircleCheck, CircleAlert } from 'lucide-react-taro'
 import { APP_VERSION } from '@/config/app-version'
-import type { UpdateInfo, DownloadStatus } from '@/hooks/use-app-update'
+import type { UpdateInfo, DownloadStatus, VersionEntry } from '@/hooks/use-app-update'
 
 interface UpdateDialogProps {
   open: boolean
@@ -56,22 +56,51 @@ export function UpdateDialog({
     onOpenChange(false)
   }
 
-  /** 渲染更新日志（按换行符分隔，带序号） */
-  const renderChangelog = (changelog: string) => {
-    const lines = changelog.split('\n').filter((line) => line.trim())
+  /** 渲染单个版本的日志 */
+  const renderVersionLog = (entry: VersionEntry, index: number) => {
+    const lines = (entry.changelog || '').split('\n').filter((line) => line.trim())
     if (lines.length === 0) return null
+    return (
+      <View key={index} className={index > 0 ? 'mt-3' : ''}>
+        <View className="flex flex-row items-center gap-1 mb-1">
+          <Text className="block text-xs font-bold text-blue-400">v{entry.version}</Text>
+          {entry.buildTime && (
+            <Text className="block text-xs text-gray-500">{entry.buildTime}</Text>
+          )}
+        </View>
+        {lines.map((line, i) => (
+          <Text key={i} className="block text-sm text-gray-200">
+            {'  '}- {line}
+          </Text>
+        ))}
+      </View>
+    )
+  }
+
+  /** 渲染更新日志（有 versions 数组时按版本分组，否则用合并的 changelog） */
+  const renderChangelog = (info: UpdateInfo) => {
+    const versions = info.versions
+    const hasVersionedLogs = versions && versions.length > 0
+
     return (
       <View className="bg-[#2a2f3e] rounded-xl p-3 mt-2">
         <View className="flex items-center gap-1 mb-2">
           <Package size={12} color="#6b7280" />
           <Text className="block text-xs text-gray-400">更新内容</Text>
         </View>
-        <View className="flex flex-col gap-1">
-          {lines.map((line, i) => (
-            <Text key={i} className="block text-sm text-gray-200">
-              {i + 1}. {line}
-            </Text>
-          ))}
+        <View
+          className="flex flex-col gap-1 overflow-y-auto"
+          style={{ maxHeight: '200px' }}
+        >
+          {hasVersionedLogs ? (
+            versions.map((v, i) => renderVersionLog(v, i))
+          ) : (
+            info.changelog.split('\n').filter((line) => line.trim()).map((line, i) => (
+              <Text key={i} className="block text-sm text-gray-200">
+                {i + 1}. {line}
+              </Text>
+            ))
+          )}
         </View>
       </View>
     )
@@ -185,8 +214,8 @@ export function UpdateDialog({
             </View>
           )}
 
-          {/* 更新日志（中文，换行分隔，带序号） */}
-          {updateInfo?.changelog && renderChangelog(updateInfo.changelog)}
+          {/* 更新日志（支持跨版本，按版本分组展示） */}
+          {updateInfo && (updateInfo.changelog || (updateInfo.versions && updateInfo.versions.length > 0)) && renderChangelog(updateInfo)}
 
           {/* 下载进度区（仅在下载中/已完成/错误时显示） */}
           {(isDownloading || isCompleted || isPaused || isError) && (

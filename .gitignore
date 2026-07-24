@@ -46,3 +46,12 @@ pnpm-debug.log*
 .cozeproj/reduction
 node-compile-cache/
 .codegraph
+
+# IDE / Editor
+.trae/
+
+# Misc temp files
+Microsoft/
+package-lock.json
+server-deploy.tar.gz
+test-create-room.json

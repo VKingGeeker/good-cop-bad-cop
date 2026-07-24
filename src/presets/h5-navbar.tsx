@@ -169,8 +169,7 @@ export const H5NavBar = () => {
     };
   }, [updateNavState]);
 
-  const shouldRender =
-    IS_H5_ENV && navState.visible && navState.navStyle !== 'custom';
+  const shouldRender = false; // 彻底移除 H5 顶部导航栏
 
   useEffect(() => {
     if (!IS_H5_ENV) return;

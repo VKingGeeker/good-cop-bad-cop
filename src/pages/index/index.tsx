@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react'
 import { View, Text } from '@tarojs/components'
 import Taro from '@tarojs/taro'
-import { Swords, BookOpen, DoorOpen, LogIn, Target, IdCard, Gamepad2, Zap, Trophy, Undo2, List, Lock, Download } from 'lucide-react-taro'
+import { Swords, BookOpen, DoorOpen, LogIn, Target, IdCard, Gamepad2, Zap, Trophy, Undo2, List, Lock, Download, History } from 'lucide-react-taro'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Network } from '@/network'
 import { APP_VERSION } from '@/config/app-version'
 import { useAppUpdate } from '@/hooks/use-app-update'
+import type { VersionEntry } from '@/hooks/use-app-update'
 import { UpdateDialog } from '@/components/update/update-dialog'
 
 interface RoomListItem {
@@ -24,6 +25,9 @@ const IndexPage = () => {
   const [showJoin, setShowJoin] = useState(false)
   const [showRules, setShowRules] = useState(false)
   const [showRoomList, setShowRoomList] = useState(false)
+  const [showChangelog, setShowChangelog] = useState(false)
+  const [changelogList, setChangelogList] = useState<VersionEntry[]>([])
+  const [changelogLoading, setChangelogLoading] = useState(false)
 
   // 创建房间
   const [hostName, setHostName] = useState('')
@@ -46,7 +50,7 @@ const IndexPage = () => {
   // 检查更新 & 下载安装
   const {
     updateInfo, progress, status, checking, showDialog, installing, hasUpdate,
-    checkUpdate, startDownload, installApk, closeDialog,
+    checkUpdate, startDownload, installApk, closeDialog, getChangelog,
   } = useAppUpdate()
 
   // 检查是否有未结束的房间（房主暂退后可返回）
@@ -197,6 +201,18 @@ const IndexPage = () => {
     }
   }
 
+  /** 查看历史更新日志 */
+  const handleShowChangelog = async () => {
+    setShowChangelog(true)
+    setChangelogLoading(true)
+    try {
+      const list = await getChangelog()
+      setChangelogList(list)
+    } finally {
+      setChangelogLoading(false)
+    }
+  }
+
   return (
     <View className="min-h-screen bg-background flex flex-col items-center justify-center px-6">
       {/* 标题 */}
@@ -248,6 +264,15 @@ const IndexPage = () => {
             </View>
           )}
         </MenuBtn>
+      </View>
+
+      {/* 历史更新日志小按钮（独立于主菜单） */}
+      <View
+        className="mt-4 flex flex-row items-center gap-1 active:opacity-70"
+        onClick={handleShowChangelog}
+      >
+        <History size={12} color="#6b7280" />
+        <Text className="block text-xs text-gray-500">更新历史</Text>
       </View>
 
       {/* 创建房间弹窗 */}
@@ -446,6 +471,51 @@ const IndexPage = () => {
                 <Button className="w-full" variant="outline" onClick={handleGetRoomList}>
                   <Text className="text-sm">刷新列表</Text>
                 </Button>
+              </View>
+            )}
+          </View>
+        </DialogContent>
+      </Dialog>
+
+      {/* 历史更新日志弹窗 */}
+      <Dialog open={showChangelog} onOpenChange={(o) => setShowChangelog(o)}>
+        <DialogContent className="bg-card text-white border-gray-700 max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <History size={18} color="#6b7280" />
+              <Text>更新历史</Text>
+            </DialogTitle>
+          </DialogHeader>
+          <View className="mt-2 overflow-y-auto" style={{ maxHeight: '65vh' }}>
+            {changelogLoading ? (
+              <Text className="block text-gray-400 text-sm text-center py-8">加载中...</Text>
+            ) : changelogList.length === 0 ? (
+              <Text className="block text-gray-400 text-sm text-center py-8">暂无更新记录</Text>
+            ) : (
+              <View className="space-y-4">
+                {changelogList.map((entry, idx) => {
+                  const lines = (entry.changelog || '').split('\n').filter((l) => l.trim())
+                  return (
+                    <View key={idx} className="bg-[#2a2f3e] rounded-xl p-3">
+                      <View className="flex flex-row items-center gap-2 mb-2">
+                        <Text className="block text-sm font-bold text-blue-400">v{entry.version}</Text>
+                        {entry.buildTime && (
+                          <Text className="block text-xs text-gray-500">{entry.buildTime}</Text>
+                        )}
+                        {idx === 0 && (
+                          <View className="px-1.5 py-0.5 rounded" style={{ backgroundColor: '#166534' }}>
+                            <Text className="block text-xs text-green-400">最新</Text>
+                          </View>
+                        )}
+                      </View>
+                      {lines.map((line, i) => (
+                        <Text key={i} className="block text-sm text-gray-300">
+                          {'  '}- {line}
+                        </Text>
+                      ))}
+                    </View>
+                  )
+                })}
               </View>
             )}
           </View>
