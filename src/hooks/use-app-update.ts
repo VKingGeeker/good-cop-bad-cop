@@ -229,35 +229,61 @@ export function useAppUpdate() {
 
   /** 安装 APK */
   const installApk = useCallback(() => {
-    if (!downloadState.blob) {
-      // Blob 不在内存中（应用重启），需要重新下载
-      Taro.showToast({ title: '安装包未就绪，请重新下载', icon: 'none' })
-      // 重置完成状态，触发重新下载
-      Taro.removeStorageSync(STORAGE_COMPLETE)
-      setProgress(0)
-      setStatus('idle')
-      return
-    }
+    if (!updateInfo?.downloadUrl) return
 
     setInstalling(true)
-    try {
-      // 在 Capacitor/H5 环境中，通过 blob URL 触发下载安装
-      const blobUrl = URL.createObjectURL(downloadState.blob)
-      const a = document.createElement('a')
-      a.href = blobUrl
-      a.download = 'wujianyiyun.apk'
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      // 延迟释放 blob URL，确保下载已触发
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 3000)
-    } catch (e: any) {
-      Taro.showToast({ title: e.message || '安装失败', icon: 'none' })
-    } finally {
-      setInstalling(false)
+
+    // 检查是否在 Capacitor 原生环境
+    const capacitor = (typeof window !== 'undefined') ? (window as any).Capacitor : null
+    const isNative = capacitor?.isNativePlatform?.()
+
+    if (isNative) {
+      // Capacitor 原生环境：调用 Java 插件下载并安装 APK
+      const url = buildDownloadUrl(updateInfo.downloadUrl)
+      const ApkInstaller = capacitor.Plugins?.ApkInstaller
+      if (!ApkInstaller) {
+        Taro.showToast({ title: '安装插件未就绪', icon: 'none' })
+        setInstalling(false)
+        return
+      }
+
+      ApkInstaller.downloadAndInstall({ url }).then((result: any) => {
+        if (result?.success) {
+          Taro.showToast({ title: '安装界面已打开', icon: 'none' })
+        }
+      }).catch((err: any) => {
+        Taro.showToast({ title: err?.message || '安装失败', icon: 'none' })
+      }).finally(() => {
+        setInstalling(false)
+      })
+    } else {
+      // H5 环境：通过 blob URL 下载
+      if (!downloadState.blob) {
+        Taro.showToast({ title: '安装包未就绪，请重新下载', icon: 'none' })
+        Taro.removeStorageSync(STORAGE_COMPLETE)
+        setProgress(0)
+        setStatus('idle')
+        setInstalling(false)
+        return
+      }
+
+      try {
+        const blobUrl = URL.createObjectURL(downloadState.blob)
+        const a = document.createElement('a')
+        a.href = blobUrl
+        a.download = 'wujianyiyun.apk'
+        a.style.display = 'none'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 3000)
+      } catch (e: any) {
+        Taro.showToast({ title: e.message || '安装失败', icon: 'none' })
+      } finally {
+        setInstalling(false)
+      }
     }
-  }, [])
+  }, [updateInfo, buildDownloadUrl])
 
   /** 关闭弹窗（如果正在下载，中止并保存进度） */
   const closeDialog = useCallback(() => {
