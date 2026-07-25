@@ -11,9 +11,6 @@ import { FileText, CircleAlert, Upload, Check, LoaderCircle } from 'lucide-react
 import { useErrorLogger, LogEntry } from '@/hooks/use-error-logger'
 import Taro from '@tarojs/taro'
 
-/**
- * 获取日志等级颜色
- */
 const getLevelColor = (level: LogEntry['level']): string => {
   switch (level) {
     case 'error': return '#ef4444'
@@ -22,9 +19,6 @@ const getLevelColor = (level: LogEntry['level']): string => {
   }
 }
 
-/**
- * 获取日志等级标签
- */
 const getLevelLabel = (level: LogEntry['level']): string => {
   switch (level) {
     case 'error': return 'ERROR'
@@ -33,19 +27,11 @@ const getLevelLabel = (level: LogEntry['level']): string => {
   }
 }
 
-/**
- * 悬浮日志按钮组件
- * - 可拖动位置
- * - 半透明不影响游戏
- * - 有错误时显示红色图标 + 数量
- * - 点击弹出日志列表
- */
 export const FloatingLogButton = () => {
   const { logs, errorCount, submitting, submitLogs, clearLogs } = useErrorLogger()
   const [showDialog, setShowDialog] = useState(false)
   const [submitResult, setSubmitResult] = useState<{ success: boolean; message: string } | null>(null)
 
-  // 拖动状态
   const [pos, setPos] = useState({ x: 20, y: 200 })
   const dragRef = useRef({
     dragging: false,
@@ -56,53 +42,46 @@ export const FloatingLogButton = () => {
     startPosY: 0,
   })
 
-  // 指针按下：开始拖动
-  const onPointerDown = useCallback((e: any) => {
+  const onTouchStart = useCallback((e: any) => {
+    const touch = e.touches ? e.touches[0] : e
     dragRef.current = {
       dragging: true,
       moved: false,
-      startX: e.clientX,
-      startY: e.clientY,
+      startX: touch.clientX || touch.pageX,
+      startY: touch.clientY || touch.pageY,
       startPosX: pos.x,
       startPosY: pos.y,
     }
   }, [pos])
 
-  // 指针移动：更新位置
-  const onPointerMove = useCallback((e: any) => {
+  const onTouchMove = useCallback((e: any) => {
     if (!dragRef.current.dragging) return
-    const dx = e.clientX - dragRef.current.startX
-    const dy = e.clientY - dragRef.current.startY
+    const touch = e.touches ? e.touches[0] : e
+    const clientX = touch.clientX || touch.pageX
+    const clientY = touch.clientY || touch.pageY
+    const dx = clientX - dragRef.current.startX
+    const dy = clientY - dragRef.current.startY
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
       dragRef.current.moved = true
     }
     const newX = dragRef.current.startPosX + dx
     const newY = dragRef.current.startPosY + dy
-    // 边界限制
-    const maxX = window.innerWidth - 120
-    const maxY = window.innerHeight - 50
+    const maxX = 255
+    const maxY = 800
     setPos({
       x: Math.max(0, Math.min(newX, maxX)),
       y: Math.max(0, Math.min(newY, maxY)),
     })
   }, [])
 
-  // 指针抬起：结束拖动，如果未移动则视为点击
-  const onPointerUp = useCallback((e: any) => {
+  const onTouchEnd = useCallback(() => {
     if (!dragRef.current.dragging) return
     dragRef.current.dragging = false
     if (!dragRef.current.moved) {
-      // 阻止事件传播，避免 pointer 释放后触发 click 关闭刚打开的弹窗
-      if (e) {
-        e.stopPropagation?.()
-        e.preventDefault?.()
-      }
-      // 延迟打开弹窗，确保当前事件循环完成
-      setTimeout(() => setShowDialog(true), 50)
+      setShowDialog(true)
     }
   }, [])
 
-  // 提交日志
   const handleSubmit = useCallback(async () => {
     const result = await submitLogs()
     setSubmitResult(result)
@@ -114,14 +93,11 @@ export const FloatingLogButton = () => {
     }
   }, [submitLogs])
 
-  // 倒序日志
   const sortedLogs = [...logs].reverse()
-
   const hasErrors = errorCount > 0
 
   return (
     <>
-      {/* 悬浮按钮 */}
       <View
         style={{
           position: 'fixed',
@@ -134,16 +110,11 @@ export const FloatingLogButton = () => {
           padding: '8px 14px',
           borderRadius: '24px',
           backgroundColor: hasErrors ? 'rgba(239, 68, 68, 0.7)' : 'rgba(30, 41, 59, 0.6)',
-          backdropFilter: 'blur(4px)',
           boxShadow: '0 2px 12px rgba(0,0,0,0.2)',
-          cursor: 'pointer',
-          userSelect: 'none',
-          touchAction: 'none',
         }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerLeave={onPointerMove}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
       >
         {hasErrors ? (
           <CircleAlert size={18} color="#fff" />
@@ -173,7 +144,6 @@ export const FloatingLogButton = () => {
         )}
       </View>
 
-      {/* 日志弹窗 */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent
           className="max-w-[90vw] w-full"
@@ -199,7 +169,6 @@ export const FloatingLogButton = () => {
             </DialogTitle>
           </DialogHeader>
 
-          {/* 日志列表 */}
           <View style={{ flex: 1, overflow: 'auto', minHeight: '200px', maxHeight: '50vh' }}>
             {sortedLogs.length === 0 ? (
               <View style={{ textAlign: 'center', padding: '40px 0' }}>
@@ -267,7 +236,6 @@ export const FloatingLogButton = () => {
             )}
           </View>
 
-          {/* 底部操作栏 */}
           <View
             style={{
               display: 'flex',

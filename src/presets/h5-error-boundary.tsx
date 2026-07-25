@@ -1,4 +1,4 @@
-import { View } from '@tarojs/components';
+import { View, Text } from '@tarojs/components';
 import { Component, PropsWithChildren, useSyncExternalStore } from 'react';
 import { CircleAlert, Copy, RefreshCw, X } from 'lucide-react-taro';
 import { Badge } from '@/components/ui/badge';
@@ -373,10 +373,29 @@ class H5ErrorBoundaryInner extends Component<ErrorBoundaryProps, ErrorState> {
   }
 
   render() {
+    if (this.state.error) {
+      console.error('[H5ErrorBoundary] Rendering error fallback:', this.state.error);
+      return (
+        <>
+          <H5ErrorOverlayHost />
+          <View className="min-h-screen bg-[#0a0e1a] flex flex-col items-center justify-center px-6">
+            <CircleAlert size={48} color="#ef4444" />
+            <Text className="block text-xl font-bold text-white mt-4">页面加载出错</Text>
+            <Text className="block text-sm text-gray-400 mt-2">请刷新页面重试</Text>
+            <Button
+              className="mt-4 bg-blue-600 text-white"
+              onClick={() => window.location.reload()}
+            >
+              <Text className="block">刷新页面</Text>
+            </Button>
+          </View>
+        </>
+      );
+    }
     return (
       <>
         <H5ErrorOverlayHost />
-        {this.state.error ? null : this.props.children}
+        {this.props.children}
       </>
     );
   }
