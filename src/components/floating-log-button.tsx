@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import { Button } from '@/components/ui/button'
 import {
@@ -27,10 +27,34 @@ const getLevelLabel = (level: LogEntry['level']): string => {
   }
 }
 
+const isWeapp = Taro.getEnv() === Taro.ENV_TYPE.WEAPP
+
+const isTouchDevice = () => {
+  if (isWeapp) return true
+  if (typeof window === 'undefined') return false
+  return 'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0
+}
+
+const BUTTON_WIDTH = 120
+const BUTTON_HEIGHT = 40
+
+const getScreenSize = () => {
+  try {
+    if (typeof window !== 'undefined' && window.innerWidth) {
+      return { width: window.innerWidth, height: window.innerHeight }
+    }
+    const sysInfo = Taro.getSystemInfoSync()
+    return { width: sysInfo.windowWidth || 375, height: sysInfo.windowHeight || 667 }
+  } catch {
+    return { width: 375, height: 667 }
+  }
+}
+
 export const FloatingLogButton = () => {
   const { logs, errorCount, submitting, submitLogs, clearLogs } = useErrorLogger()
   const [showDialog, setShowDialog] = useState(false)
   const [submitResult, setSubmitResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [screenSize, setScreenSize] = useState(getScreenSize())
 
   const [pos, setPos] = useState({ x: 20, y: 200 })
   const dragRef = useRef({
@@ -41,6 +65,66 @@ export const FloatingLogButton = () => {
     startPosX: 0,
     startPosY: 0,
   })
+
+  useEffect(() => {
+    setScreenSize(getScreenSize())
+    
+    if (typeof window !== 'undefined') {
+      const handleResize = () => {
+        setScreenSize(getScreenSize())
+      }
+      window.addEventListener('resize', handleResize)
+      return () => window.removeEventListener('resize', handleResize)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isTouchDevice()) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current.dragging) return
+      const dx = e.clientX - dragRef.current.startX
+      const dy = e.clientY - dragRef.current.startY
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        dragRef.current.moved = true
+      }
+      const newX = dragRef.current.startPosX + dx
+      const newY = dragRef.current.startPosY + dy
+      const maxX = screenSize.width - BUTTON_WIDTH
+      const maxY = screenSize.height - BUTTON_HEIGHT - 60
+      setPos({
+        x: Math.max(0, Math.min(newX, maxX)),
+        y: Math.max(0, Math.min(newY, maxY)),
+      })
+    }
+
+    const handleMouseUp = () => {
+      if (!dragRef.current.dragging) return
+      dragRef.current.dragging = false
+      if (!dragRef.current.moved) {
+        setShowDialog(true)
+      }
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [screenSize])
+
+  const onMouseDown = useCallback((e: MouseEvent) => {
+    dragRef.current = {
+      dragging: true,
+      moved: false,
+      startX: e.clientX,
+      startY: e.clientY,
+      startPosX: pos.x,
+      startPosY: pos.y,
+    }
+  }, [pos])
 
   const onTouchStart = useCallback((e: any) => {
     const touch = e.touches ? e.touches[0] : e
@@ -66,13 +150,13 @@ export const FloatingLogButton = () => {
     }
     const newX = dragRef.current.startPosX + dx
     const newY = dragRef.current.startPosY + dy
-    const maxX = 255
-    const maxY = 800
+    const maxX = screenSize.width - BUTTON_WIDTH
+    const maxY = screenSize.height - BUTTON_HEIGHT - 60
     setPos({
       x: Math.max(0, Math.min(newX, maxX)),
       y: Math.max(0, Math.min(newY, maxY)),
     })
-  }, [])
+  }, [pos, screenSize])
 
   const onTouchEnd = useCallback(() => {
     if (!dragRef.current.dragging) return
@@ -111,10 +195,18 @@ export const FloatingLogButton = () => {
           borderRadius: '24px',
           backgroundColor: hasErrors ? 'rgba(239, 68, 68, 0.7)' : 'rgba(30, 41, 59, 0.6)',
           boxShadow: '0 2px 12px rgba(0,0,0,0.2)',
+          cursor: 'pointer',
+          userSelect: 'none',
+          touchAction: 'none',
         }}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
+        {...(isTouchDevice() ? {
+          onTouchStart,
+          onTouchMove,
+          onTouchEnd,
+        } : {
+          onMouseDown,
+          onClick: () => setShowDialog(true),
+        })}
       >
         {hasErrors ? (
           <CircleAlert size={18} color="#fff" />

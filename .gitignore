@@ -8,6 +8,10 @@ dist/
 build/
 dist-*/
 
+# Gradle
+.gradle/
+.gradle-home/
+
 # Misc
 .DS_Store
 .env
@@ -39,6 +43,13 @@ pnpm-debug.log*
 
 # Key
 # key/
+
+# Android signing
+*.keystore
+*.jks
+android/app/release.keystore
+android/app/debug.keystore
+!C:/Users/*/.android/debug.keystore
 
 # Preview files
 .preview

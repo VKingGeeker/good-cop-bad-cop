@@ -37,6 +37,18 @@
 | created_at | timestamptz | 创建时间 |
 | updated_at | timestamptz | 更新时间 |
 
+### 错误日志表结构 (`error_logs`)
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | uuid | 主键 |
+| message | text | 错误信息 |
+| stack | text | 堆栈跟踪 |
+| level | text | 日志级别（error/warn/info） |
+| timestamp | text | ISO 标准时间戳（含时区） |
+| submit_time | timestamptz | 提交到数据库的时间 |
+| fix_time | timestamptz | 修复时间（默认为 null） |
+| submitted | boolean | 是否已提交到数据库 |
+
 ## 三、已完成功能清单
 
 ### 房间系统
@@ -56,6 +68,8 @@
 - [x] 单人测试模式（填充机器人）
 - [x] 游戏结果与胜负判定
 - [x] 房主开始游戏后，其他玩家通过轮询自动跳转游戏页
+- [x] 游戏日志区域显隐功能（点击隐藏/显示按钮切换日志显示状态）
+- [x] 悬浮日志按钮（`src/components/floating-log-button.tsx`）：支持拖动到屏幕任意位置，点击查看系统错误日志，支持清空和提交日志到数据库
 
 ### 语音系统
 - [x] TRTC 实时语音通话
@@ -70,7 +84,7 @@
 - [x] Android 明文流量配置（`network_security_config.xml`）
 - [x] 游戏内更新弹窗（进度条 + 安装/取消按钮）
 - [x] 中文更新日志展示（条目间换行分隔）
-- [x] APK 断点续传下载（HTTP Range 请求，取消后保存进度）
+- [x] APK 完整下载（强制完整下载，避免旧缓存文件不匹配问题）
 - [x] 下载状态持久化（进度百分比、完成状态保存到 localStorage）
 - [x] 安装按钮状态控制（未达 100% 置灰，完成后可用）
 - [x] 游戏页顶部栏更新检查入口
@@ -93,8 +107,12 @@
 | POST | `/api/game/room/:roomCode/action` | 执行游戏行动 |
 | GET | `/api/game/room/:roomCode/result` | 获取游戏结果 |
 | GET | `/api/game/room/:roomCode/trtc-sign?playerId=` | 获取 TRTC 签名 |
+| POST | `/api/error-log/submit` | 提交错误日志到数据库 |
+| GET | `/api/error-log/unfixed` | 获取未修复的错误日志列表 |
+| POST | `/api/error-log/:id/fix` | 标记错误日志为已修复 |
 | GET | `/api/app/version` | 获取最新版本信息 |
-| GET | `/api/app/download` | 下载最新 APK |
+| GET | `/api/app/changelog` | 获取所有版本历史更新日志 |
+| GET | `/api/app/download` | 下载最新 APK（强制完整下载，不支持断点续传） |
 
 ## 五、关键文件索引
 
@@ -106,10 +124,13 @@
 | `src/pages/game/index.tsx` | 游戏页：游戏交互、TRTC 语音 |
 | `src/pages/result/index.tsx` | 结果页：胜负展示 |
 | `src/hooks/use-trtc.ts` | TRTC 语音 Hook |
-| `src/hooks/use-app-update.ts` | APP 更新管理 Hook（下载、断点续传、状态持久化） |
+| `src/hooks/use-app-update.ts` | APP 更新管理 Hook（下载、状态持久化） |
 | `src/network.ts` | 网络请求封装 |
 | `src/config/app-version.ts` | APP 版本号（每次打包前更新） |
 | `src/components/update/update-dialog.tsx` | 更新弹窗组件（进度条、安装/取消按钮） |
+| `src/components/floating-log-button.tsx` | 悬浮日志按钮：可拖动、点击查看错误日志、清空和提交日志 |
+| `src/hooks/use-error-logger.ts` | 错误日志管理 Hook：捕获错误、本地存储、提交到数据库 |
+| `src/presets/h5-error-boundary.tsx` | H5 错误边界组件：捕获前端运行时错误，显示友好的错误页面 |
 | `capacitor.config.ts` | Capacitor 配置（appName: 无间疑云） |
 
 ### 后端
@@ -117,12 +138,13 @@
 |------|------|
 | `server/src/main.ts` | 入口：CORS、全局前缀 `/api`、定时清理房间 |
 | `server/src/app.module.ts` | 模块注册 |
-| `server/src/app-update.controller.ts` | 版本检查 + APK 下载（支持 Range 断点续传） |
+| `server/src/app-update.controller.ts` | 版本检查 + APK 下载（强制完整下载） |
 | `server/src/game/game.controller.ts` | 游戏房间 API |
 | `server/src/game/game-room.service.ts` | 房间逻辑：创建/加入/离开/踢人/列表/清理 |
 | `server/src/game/game-logic.service.ts` | 游戏核心逻辑 |
 | `server/src/game/trtc.service.ts` | TRTC 签名生成 |
 | `server/src/storage/database/supabase-client.ts` | Supabase 客户端 |
+| `server/src/game/error-log.controller.ts` | 错误日志 API：提交日志、获取日志列表、标记修复 |
 
 ### Android
 | 文件 | 说明 |

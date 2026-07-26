@@ -63,5 +63,20 @@
     "version": "1.0.22",
     "buildTime": "2026-07-25",
     "changelog": "修复H5端白屏问题：修复H5ErrorBoundary捕获错误时返回null导致页面空白；将悬浮日志按钮从全局移回游戏页面，恢复到1.0.17版本状态；保留时间戳修复"
+  },
+  {
+    "version": "1.0.23",
+    "buildTime": "2026-07-25",
+    "changelog": "修复查看日志悬浮按钮点击无反应和无法拖动问题：H5端使用mouse事件，小程序端使用touch事件；添加浏览器端独立的鼠标移动和释放事件监听"
+  },
+  {
+    "version": "1.0.24",
+    "buildTime": "2026-07-26",
+    "changelog": "修复悬浮日志按钮拖动范围限制，支持拖动到屏幕右侧；对局日志区域增加显隐功能，点击隐藏按钮可收起日志，点击显示日志按钮可重新展开"
+  },
+  {
+    "version": "1.0.25",
+    "buildTime": "2026-07-26",
+    "changelog": "修复悬浮日志按钮在 APK 内无法拖动的问题：将平台判断改为输入能力判断（检测 ontouchstart/maxTouchPoints），触屏设备（含 Capacitor WebView）使用 touch 事件，PC 浏览器使用 mouse 事件；添加 touchAction:none 防止拖动时页面滚动"
   }
 ]

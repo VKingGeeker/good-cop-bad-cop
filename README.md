@@ -51,7 +51,7 @@
 │   └── src/
 │       ├── main.ts              # 入口：CORS、全局前缀 /api、定时清理
 │       ├── app.module.ts        # 模块注册
-│       ├── app-update.controller.ts  # 版本检查 + APK 下载（Range 断点续传）
+│       ├── app-update.controller.ts  # 版本检查 + APK 下载（强制完整下载）
 │       └── game/
 │           ├── game.controller.ts    # 游戏房间 API
 │           ├── game-room.service.ts  # 房间逻辑
@@ -121,10 +121,17 @@ pnpm build:server   # 构建后端
 ### APP 更新系统
 - 游戏内更新弹窗（进度条 + 安装/取消按钮）
 - 中文更新日志展示（条目间换行分隔）
-- APK 断点续传下载（HTTP Range 请求，取消后保存进度）
+- APK 完整下载（强制完整下载，避免旧缓存文件不匹配问题）
 - 下载状态持久化（进度百分比、完成状态保存到 localStorage）
 - 安装按钮状态控制（未达 100% 置灰，完成后可用）
 - 首页 + 游戏页均可触发更新检查
+
+### 错误日志系统
+- 悬浮日志按钮（游戏页面）：可拖动到屏幕任意位置，点击查看系统错误日志
+- 错误日志捕获：自动捕获前端运行时错误，存储到 localStorage
+- 日志提交：支持将错误日志提交到 Supabase 数据库（`error_logs` 表）
+- 日志管理：支持清空本地日志、查看日志详情、标记已修复
+- 游戏日志显隐：底部对局日志区域支持点击隐藏/显示切换
 
 ## API 接口
 
@@ -144,8 +151,12 @@ pnpm build:server   # 构建后端
 | POST | `/api/game/room/:roomCode/action` | 执行游戏行动 |
 | GET | `/api/game/room/:roomCode/result` | 获取游戏结果 |
 | GET | `/api/game/room/:roomCode/trtc-sign` | 获取 TRTC 签名 |
+| POST | `/api/error-log/submit` | 提交错误日志到数据库 |
+| GET | `/api/error-log/unfixed` | 获取未修复的错误日志列表 |
+| POST | `/api/error-log/:id/fix` | 标记错误日志为已修复 |
 | GET | `/api/app/version` | 获取最新版本信息 |
-| GET | `/api/app/download` | 下载 APK（支持 Range 断点续传） |
+| GET | `/api/app/changelog` | 获取所有版本历史更新日志 |
+| GET | `/api/app/download` | 下载 APK（强制完整下载，不支持断点续传） |
 
 ## 部署
 
