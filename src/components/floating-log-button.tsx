@@ -65,6 +65,19 @@ export const FloatingLogButton = () => {
     startPosX: 0,
     startPosY: 0,
   })
+  const dialogOpenTimeRef = useRef(0)
+
+  const handleDialogOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      dialogOpenTimeRef.current = Date.now()
+      setShowDialog(true)
+    } else {
+      if (Date.now() - dialogOpenTimeRef.current < 400) {
+        return
+      }
+      setShowDialog(false)
+    }
+  }, [])
 
   useEffect(() => {
     setScreenSize(getScreenSize())
@@ -102,7 +115,7 @@ export const FloatingLogButton = () => {
       if (!dragRef.current.dragging) return
       dragRef.current.dragging = false
       if (!dragRef.current.moved) {
-        setShowDialog(true)
+        handleDialogOpenChange(true)
       }
     }
 
@@ -113,7 +126,7 @@ export const FloatingLogButton = () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [screenSize])
+  }, [screenSize, handleDialogOpenChange])
 
   const onMouseDown = useCallback((e: MouseEvent) => {
     dragRef.current = {
@@ -162,9 +175,9 @@ export const FloatingLogButton = () => {
     if (!dragRef.current.dragging) return
     dragRef.current.dragging = false
     if (!dragRef.current.moved) {
-      setShowDialog(true)
+      handleDialogOpenChange(true)
     }
-  }, [])
+  }, [handleDialogOpenChange])
 
   const handleSubmit = useCallback(async () => {
     const result = await submitLogs()
@@ -205,7 +218,7 @@ export const FloatingLogButton = () => {
           onTouchEnd,
         } : {
           onMouseDown,
-          onClick: () => setShowDialog(true),
+          onClick: () => handleDialogOpenChange(true),
         })}
       >
         {hasErrors ? (
@@ -236,7 +249,7 @@ export const FloatingLogButton = () => {
         )}
       </View>
 
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+      <Dialog open={showDialog} onOpenChange={handleDialogOpenChange}>
         <DialogContent
           className="max-w-[90vw] w-full"
           style={{ maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
@@ -350,7 +363,7 @@ export const FloatingLogButton = () => {
             <Button
               variant="outline"
               className="flex-1"
-              onClick={() => setShowDialog(false)}
+              onClick={() => handleDialogOpenChange(false)}
             >
               <Text className="block">关闭</Text>
             </Button>

@@ -78,5 +78,10 @@
     "version": "1.0.25",
     "buildTime": "2026-07-26",
     "changelog": "修复悬浮日志按钮在 APK 内无法拖动的问题：将平台判断改为输入能力判断（检测 ontouchstart/maxTouchPoints），触屏设备（含 Capacitor WebView）使用 touch 事件，PC 浏览器使用 mouse 事件；添加 touchAction:none 防止拖动时页面滚动"
+  },
+  {
+    "version": "1.0.26",
+    "buildTime": "2026-07-26",
+    "changelog": "修复悬浮日志按钮点击弹窗闪一下又关闭的问题：移动端 WebView 触摸后模拟 click 事件会落到刚显示的遮罩上导致立即关闭，新增打开后 400ms 内忽略关闭请求的幽灵点击防护"
   }
 ]
